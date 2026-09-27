@@ -26,6 +26,7 @@
     "@types/node": "^24.3.0",
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.0.0",
+    "ghost-deps": "^0.1.6",
     "prettier": "^3.6.2",
     "tsup": "^8.5.0",
     "tsx": "^4.20.5",
