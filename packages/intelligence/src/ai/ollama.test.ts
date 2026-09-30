@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { OllamaLocalAiProvider } from "./ollama.js";
 
 test("#100 caps declared and chunked responses before parsing", async () => {
@@ -60,4 +60,54 @@ test("accepts small completion and embedding responses", async () => {
   });
   await expect(provider.complete({ prompt: "fixture" })).resolves.toBe("ok");
   await expect(provider.embed(["fixture"])).resolves.toEqual([[1, 2]]);
+});
+
+test("whole-response deadline aborts a stalled body for completion and embedding", async () => {
+  for (const method of ["complete", "embed"] as const) {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    const fetchImpl = (async (_url: unknown, init?: RequestInit) => {
+      signal = init?.signal as AbortSignal;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("{"));
+          signal!.addEventListener(
+            "abort",
+            () => controller.error(new Error("fixture abort")),
+            { once: true },
+          );
+        },
+      });
+      return new Response(body);
+    }) as typeof fetch;
+    const provider = new OllamaLocalAiProvider({
+      baseUrl: "http://ollama.local",
+      model: "fixture",
+      fetchImpl,
+    });
+    let outcome = "pending";
+    const operation =
+      method === "complete"
+        ? provider.complete({ prompt: "fixture" })
+        : provider.embed(["fixture"]);
+    const settled = operation.then(
+      () => {
+        outcome = "resolved";
+      },
+      () => {
+        outcome = "rejected";
+      },
+    );
+    try {
+      await vi.advanceTimersByTimeAsync(59_999);
+      expect(outcome).toBe("pending");
+      await vi.advanceTimersByTimeAsync(1);
+      expect(signal?.aborted).toBe(true);
+      expect(outcome).toBe("rejected");
+      expect(vi.getTimerCount()).toBe(0);
+      await settled;
+    } finally {
+      vi.useRealTimers();
+    }
+  }
 });

@@ -34,52 +34,53 @@ export class OllamaLocalAiProvider implements LocalAiProvider {
 
   async isReachable(): Promise<boolean> {
     try {
-      const response = await this.request("/api/tags", undefined, 5_000);
-      return response.ok;
+      return await this.request(
+        "/api/tags",
+        undefined,
+        5_000,
+        async (response) => {
+          await response.body?.cancel();
+          return response.ok;
+        },
+      );
     } catch {
       return false;
     }
   }
 
   async complete(request: LocalAiCompletionRequest): Promise<string> {
-    const response = await this.request("/api/generate", {
-      model: this.model,
-      prompt: request.prompt,
-      ...(request.system === undefined ? {} : { system: request.system }),
-      stream: false,
-      options: {
-        temperature: request.temperature ?? 0.2,
-        ...(request.maxTokens === undefined
-          ? {}
-          : { num_predict: request.maxTokens }),
+    const payload = (await this.request(
+      "/api/generate",
+      {
+        model: this.model,
+        prompt: request.prompt,
+        ...(request.system === undefined ? {} : { system: request.system }),
+        stream: false,
+        options: {
+          temperature: request.temperature ?? 0.2,
+          ...(request.maxTokens === undefined
+            ? {}
+            : { num_predict: request.maxTokens }),
+        },
       },
-    });
-    if (!response.ok) {
-      throw new LocalAiUnavailableError(
-        `Ollama returned HTTP ${response.status}.`,
-      );
-    }
-    const payload = JSON.parse(await readBoundedResponse(response)) as {
-      response?: unknown;
-    };
+      REQUEST_TIMEOUT_MS,
+      readPayload,
+    )) as { response?: unknown };
     return typeof payload.response === "string" ? payload.response : "";
   }
 
   async embed(texts: string[]): Promise<number[][]> {
     const vectors: number[][] = [];
     for (const text of texts) {
-      const response = await this.request("/api/embeddings", {
-        model: this.model,
-        prompt: text,
-      });
-      if (!response.ok) {
-        throw new LocalAiUnavailableError(
-          `Ollama returned HTTP ${response.status}.`,
-        );
-      }
-      const payload = JSON.parse(await readBoundedResponse(response)) as {
-        embedding?: unknown;
-      };
+      const payload = (await this.request(
+        "/api/embeddings",
+        {
+          model: this.model,
+          prompt: text,
+        },
+        REQUEST_TIMEOUT_MS,
+        readPayload,
+      )) as { embedding?: unknown };
       vectors.push(
         Array.isArray(payload.embedding) ? (payload.embedding as number[]) : [],
       );
@@ -87,15 +88,16 @@ export class OllamaLocalAiProvider implements LocalAiProvider {
     return vectors;
   }
 
-  private async request(
+  private async request<T>(
     path: string,
-    body?: unknown,
-    timeoutMs = REQUEST_TIMEOUT_MS,
-  ): Promise<Response> {
+    body: unknown,
+    timeoutMs: number,
+    consume: (response: Response) => Promise<T>,
+  ): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await this.fetchImpl(`${this.baseUrl}${path}`, {
+      const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
         method: body === undefined ? "GET" : "POST",
         ...(body === undefined
           ? {}
@@ -105,6 +107,7 @@ export class OllamaLocalAiProvider implements LocalAiProvider {
             }),
         signal: controller.signal,
       });
+      return await consume(response);
     } finally {
       clearTimeout(timeout);
     }
@@ -144,4 +147,14 @@ async function readBoundedResponse(response: Response): Promise<string> {
   } finally {
     reader.releaseLock();
   }
+}
+
+async function readPayload(response: Response): Promise<unknown> {
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
+    throw new LocalAiUnavailableError(
+      `Ollama returned HTTP ${response.status}.`,
+    );
+  }
+  return JSON.parse(await readBoundedResponse(response));
 }
