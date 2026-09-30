@@ -61,26 +61,25 @@ export async function publishPlaylistToPlex(
 
   try {
     if (!plexPlaylistRatingKey) {
-      const existing = await client.findAudioPlaylistByTitle(context.name)
-      if (existing) {
-        plexPlaylistRatingKey = existing.plexRatingKey
-        if (ratingKeys.length > 0) {
-          await client.addPlaylistItems(plexPlaylistRatingKey, source.machineIdentifier, ratingKeys)
-        }
-      } else {
-        if (ratingKeys.length === 0) {
-          await setPlaylistGenerationStatus(database, generationId, 'ready')
-          return { created: false, added: 0, status: 'ready' }
-        }
-        const result = await client.createAudioPlaylist(source.machineIdentifier, context.name, ratingKeys)
-        plexPlaylistRatingKey = result.plexRatingKey
-        created = true
+      if (ratingKeys.length === 0) {
+        await setPlaylistGenerationStatus(database, generationId, 'ready')
+        return { created: false, added: 0, status: 'ready' }
       }
+      // Plex has no ownership marker. A same-title playlist may belong to
+      // the user, so only a rating key already linked to this generation is
+      // safe to append to. Find an unused title for every first publish.
+      let title = context.name
+      for (let suffix = 1; await client.findAudioPlaylistByTitle(title); suffix += 1) {
+        title = `${context.name} (Musearr${suffix === 1 ? '' : ` ${suffix}`})`
+      }
+      const result = await client.createAudioPlaylist(source.machineIdentifier, title, ratingKeys)
+      plexPlaylistRatingKey = result.plexRatingKey
+      created = true
       await linkManagedPlexPlaylist(database, {
         generationId,
         plexServerId: source.plexServerId,
         plexRatingKey: plexPlaylistRatingKey,
-        name: context.name,
+        name: title,
       })
     } else if (ratingKeys.length > 0) {
       await client.addPlaylistItems(plexPlaylistRatingKey, source.machineIdentifier, ratingKeys)
