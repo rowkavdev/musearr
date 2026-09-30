@@ -50,9 +50,11 @@ export async function requestPlaylistAcquisitions(
     decryptSecret(connection.apiKeyCiphertext, config.MUSEARR_ENCRYPTION_KEY),
   )
   const defaults = await resolveAddDefaults(client, connection)
-  const knownArtists = new Map(
-    (await client.getArtists()).map((artist) => [artist.artistName.trim().toLowerCase(), artist]),
-  )
+  const knownArtists = new Map<string, Array<{ id: number; foreignArtistId: string }>>()
+  for (const artist of await client.getArtists()) {
+    const name = artist.artistName.trim().toLowerCase()
+    knownArtists.set(name, [...(knownArtists.get(name) ?? []), artist])
+  }
 
   let requested = 0
   let unavailable = 0
@@ -105,19 +107,24 @@ async function resolveAddDefaults(
 
 async function ensureArtist(
   client: LidarrClient,
-  knownArtists: Map<string, { id: number }>,
+  knownArtists: Map<string, Array<{ id: number; foreignArtistId: string }>>,
   artistName: string,
   defaults: { rootFolderPath: string; qualityProfileId: number; metadataProfileId: number },
 ): Promise<number | null> {
   const existing = knownArtists.get(artistName.trim().toLowerCase())
-  if (existing) {
-    return existing.id
+  if (existing?.length) {
+    // Two artists can have the same display name but different MusicBrainz IDs.
+    return existing.length === 1 ? existing[0]!.id : null
   }
 
-  const [match] = await client.lookupArtist(artistName)
-  if (!match) {
-    return null
-  }
+  // Lookup order is relevance, not identity. Shared artist names can still
+  // refer to different MusicBrainz artists, so require one exact-name match.
+  const target = artistName.trim().toLowerCase()
+  const matches = (await client.lookupArtist(artistName)).filter(
+    (artist) => artist.artistName.trim().toLowerCase() === target,
+  )
+  const match = matches[0]
+  if (matches.length !== 1 || !match) return null
   const added = await client.addArtist({
     foreignArtistId: match.foreignArtistId,
     artistName: match.artistName,
@@ -126,7 +133,7 @@ async function ensureArtist(
     metadataProfileId: defaults.metadataProfileId,
     monitored: true,
   })
-  knownArtists.set(match.artistName.trim().toLowerCase(), added)
+  knownArtists.set(match.artistName.trim().toLowerCase(), [added])
   return added.id
 }
 
