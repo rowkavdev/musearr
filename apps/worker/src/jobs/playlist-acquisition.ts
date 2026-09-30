@@ -8,7 +8,7 @@ import {
   updateGenerationItemAcquisition,
   type Database,
 } from '@musearr/db'
-import { LidarrClient } from '@musearr/lidarr'
+import { LidarrClient, LidarrConnectionError } from '@musearr/lidarr'
 
 export type PlaylistAcquisitionOutcome = {
   requested: number
@@ -17,8 +17,9 @@ export type PlaylistAcquisitionOutcome = {
 
 /**
  * Asks Lidarr to acquire the "gap" tracks in a generation. Each item is handled
- * independently: a lookup or add failure marks that one item `unavailable` and
- * the rest continue. The scheduled reconciler later advances `requested` items
+ * independently: confirmed lookup misses are `unavailable`; a transient
+ * Lidarr outage stays pending for the scheduled reconciler to retry. The
+ * reconciler later advances `requested` items
  * as their files import and Plex mirrors them.
  */
 export async function requestPlaylistAcquisitions(
@@ -78,7 +79,9 @@ export async function requestPlaylistAcquisitions(
         lidarrAlbumId: albumId,
       })
       requested += 1
-    } catch {
+    } catch (error) {
+      // A transport outage is not evidence that the artist is unavailable.
+      if (error instanceof LidarrConnectionError && error.code === 'UNREACHABLE') continue
       await updateGenerationItemAcquisition(database, item.id, { state: 'unavailable' })
       unavailable += 1
     }
