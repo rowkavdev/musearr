@@ -94,6 +94,34 @@ describe('publishPlaylistToPlex', () => {
     expect(outcome).toEqual({ created: true, added: 2, status: 'published' })
   })
 
+  it("does not hijack a user's same-named playlist", async () => {
+    db.getPlaylistGenerationJobContext.mockResolvedValue(context())
+    plex.findAudioPlaylistByTitle.mockImplementation(async (title: string) =>
+      title === 'Late Night' ? { plexRatingKey: 'user-playlist-99', title } : null,
+    )
+
+    const outcome = await publishPlaylistToPlex(database, config, 'gen-1')
+
+    expect(plex.addPlaylistItems).not.toHaveBeenCalled()
+    expect(plex.createAudioPlaylist).toHaveBeenCalledWith('machine-1', 'Late Night (Musearr)', ['1001', '1002'])
+    expect(db.linkManagedPlexPlaylist).toHaveBeenCalledWith(database, {
+      generationId: 'gen-1', plexServerId: 'server-1', plexRatingKey: '9001', name: 'Late Night (Musearr)',
+    })
+    expect(outcome).toEqual({ created: true, added: 2, status: 'published' })
+  })
+
+  it('does not reuse a colliding Musearr suffix either', async () => {
+    db.getPlaylistGenerationJobContext.mockResolvedValue(context())
+    plex.findAudioPlaylistByTitle.mockImplementation(async (title: string) =>
+      title === 'Late Night' || title === 'Late Night (Musearr)' ? { plexRatingKey: `other-${title}`, title } : null,
+    )
+
+    await publishPlaylistToPlex(database, config, 'gen-1')
+
+    expect(plex.createAudioPlaylist).toHaveBeenCalledWith('machine-1', 'Late Night (Musearr 2)', ['1001', '1002'])
+    expect(plex.addPlaylistItems).not.toHaveBeenCalled()
+  })
+
   it('only appends new items to the playlist it already owns on re-publish', async () => {
     db.getPlaylistGenerationJobContext.mockResolvedValue(context({ plexPlaylistRatingKey: '9001', status: 'published' }))
     db.getPublishableGenerationItems.mockResolvedValue([{ id: 'item-3', plexRatingKey: '1003' }])
