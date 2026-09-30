@@ -312,6 +312,7 @@ export class LidarrClient {
 
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
+        redirect: 'error',
         method,
         headers: {
           ...LIDARR_HEADERS,
