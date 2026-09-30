@@ -371,7 +371,17 @@ export async function importScrobbles(
   // Get user timezone for rollup rebuild if needed
   const timezone = await getUserTimezone(database, userId)
 
-  // Fetch all mirrored tracks for matching
+  // Filter exact normalized pairs before materializing any catalog rows.
+  // EXISTS avoids duplicating candidate tracks for repeated imported plays.
+  const pairs = new Map<string, { artist: string; title: string }>()
+  for (const scrobble of scrobbles) {
+    const artist = scrobble.artistName.trim().toLowerCase()
+    const title = scrobble.trackTitle.trim().toLowerCase()
+    pairs.set(JSON.stringify([artist, title]), { artist, title })
+  }
+  const requestedPairs = JSON.stringify(Array.from(pairs.values()))
+
+  // Fetch only mirrored tracks that could match this import
   const catalog = await database<
     Array<{
       track_id: string
@@ -391,6 +401,10 @@ export async function importScrobbles(
     JOIN albums album ON album.id = t.album_id
     JOIN artists artist ON artist.id = album.artist_id
     WHERE artist.plex_server_id = ${plexServerId}::uuid
+      AND EXISTS (
+        SELECT 1 FROM jsonb_to_recordset(${requestedPairs}::jsonb) AS wanted(artist text, title text)
+        WHERE wanted.artist = LOWER(artist.name) AND wanted.title = LOWER(t.title)
+      )
   `
 
   type CatalogTrack = (typeof catalog)[number]
