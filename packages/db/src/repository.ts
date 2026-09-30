@@ -344,6 +344,7 @@ export async function markPlaylistProposalExported(
         plex_playlist_rating_key = ${plexPlaylistRatingKey},
         updated_at = NOW()
     WHERE id = ${proposalId}::uuid AND user_id = ${userId}::uuid
+      AND status = 'draft'
   `
 }
 

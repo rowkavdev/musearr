@@ -1,6 +1,8 @@
 import { getConfig } from '@musearr/config'
 import type { Database } from '@musearr/db'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { encryptSecret } from '@musearr/core'
+import { PlexClient } from '@musearr/plex'
 import { buildServer } from './server.js'
 
 const apps: ReturnType<typeof buildServer>[] = []
@@ -12,11 +14,13 @@ function createServer(
     // to the queue's send() here instead of in every test.
     jobQueue?: { send: ReturnType<typeof vi.fn> }
     webhookSecret?: string
+    encryptionKey?: string
   } = {},
 ) {
   const app = buildServer({
     config: getConfig({
       NODE_ENV: 'test',
+      MUSEARR_ENCRYPTION_KEY: options.encryptionKey,
       DATABASE_URL: 'postgresql://musearr:musearr@localhost:5432/musearr',
       MUSEARR_WEB_ORIGIN: 'https://musearr.test',
       MUSEARR_TRUST_PROXY: 'true',
@@ -32,6 +36,7 @@ function createServer(
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(apps.splice(0).map((app) => app.close()))
 })
 
@@ -359,4 +364,59 @@ describe('Setup connection testing security', () => {
 
     testConnectionSpy.mockRestore()
   })
+})
+
+
+describe('proposal export idempotency', () => {
+  it.each(['exported', 'dismissed'])('does not create a Plex playlist for a %s proposal', async (status) => {
+    const database = (async (strings: TemplateStringsArray) => {
+      const sql = strings.join('?')
+      if (sql.includes('FROM playlist_proposals')) return [{ id: '9ad3649a-a78f-4aea-99dc-473c7c1c5501', title: 'Mix', kind: 'daily_mix', algorithm_version: 'test', status, plex_playlist_rating_key: status === 'exported' ? 'old-key' : null, created_at: '2026-09-30T00:00:00Z' }]
+      return []
+    }) as unknown as Database
+    database.begin = (async (fn: (tx: Database) => Promise<unknown>) => fn(database)) as never
+    const create = vi.spyOn(PlexClient.prototype, 'createPlaylist')
+    const app = createServer({ database })
+    await app.ready()
+    const response = await app.inject({ method: 'POST', url: '/api/v1/playlists/proposals/9ad3649a-a78f-4aea-99dc-473c7c1c5501/export-to-plex', headers: { cookie: `musearr_session=${app.jwt.sign({ sub: 'owner-id', role: 'owner' })}` } })
+    expect(response.statusCode).toBe(status === 'exported' ? 200 : 409)
+    if (status === 'exported') expect(response.json().plexPlaylistRatingKey).toBe('old-key')
+    expect(create).not.toHaveBeenCalled()
+  })
+})
+
+
+it('serializes concurrent first exports and returns the original key on retry', async () => {
+  const encryptionKey = Buffer.alloc(32, 7).toString('base64')
+  let status = 'draft'
+  let ratingKey: string | null = null
+  let tail = Promise.resolve()
+  const statements: string[] = []
+  const database = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    const sql = strings.join('?').replace(/\s+/g, ' ')
+    statements.push(sql)
+    if (sql.includes('FROM playlist_proposals') && !sql.includes('FOR UPDATE')) return [{ id: '9ad3649a-a78f-4aea-99dc-473c7c1c5501', title: 'Mix', kind: 'daily_mix', algorithm_version: 'test', status, plex_playlist_rating_key: ratingKey, created_at: '2026-09-30T00:00:00Z' }]
+    if (sql.includes('JOIN plex_servers')) return [{ base_url: 'http://plex.local', token_ciphertext: encryptSecret('token', encryptionKey) }]
+    if (sql.includes('UPDATE playlist_proposals')) { status = 'exported'; ratingKey = values[0] as string }
+    return []
+  }) as unknown as Database
+  database.begin = (async (fn: (tx: Database) => Promise<unknown>) => {
+    const previous = tail
+    let release!: () => void
+    tail = new Promise<void>(resolve => { release = resolve })
+    await previous
+    try { return await fn(database) } finally { release() }
+  }) as never
+  const create = vi.spyOn(PlexClient.prototype, 'createPlaylist').mockImplementation(async () => {
+    await new Promise(resolve => setTimeout(resolve, 20))
+    return { plexRatingKey: 'first-key', title: 'Mix' }
+  })
+  const app = createServer({ database, encryptionKey })
+  await app.ready()
+  const request = { method: 'POST' as const, url: '/api/v1/playlists/proposals/9ad3649a-a78f-4aea-99dc-473c7c1c5501/export-to-plex', headers: { cookie: `musearr_session=${app.jwt.sign({ sub: 'owner-id', role: 'owner' })}` } }
+  const results = await Promise.all([app.inject(request), app.inject(request)])
+  expect(results.map(result => result.statusCode)).toEqual([200, 200])
+  expect(results.map(result => result.json().plexPlaylistRatingKey)).toEqual(['first-key', 'first-key'])
+  expect(create).toHaveBeenCalledOnce()
+  expect(statements[0]).toContain('FOR UPDATE')
 })
