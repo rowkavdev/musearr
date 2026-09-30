@@ -420,3 +420,43 @@ it('serializes concurrent first exports and returns the original key on retry', 
   expect(create).toHaveBeenCalledOnce()
   expect(statements[0]).toContain('FOR UPDATE')
 })
+
+
+describe('setup Plex PIN ownership (#82)', () => {
+  it('rejects arbitrary and cross-browser PINs before contacting Plex', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const url = String(input);
+      if (url.endsWith('/api/v2/pins')) return Response.json({ id: 42, code: 'fixture', authToken: null });
+      if (url.endsWith('/api/v2/pins/42')) return Response.json({ authToken: null });
+      if (url.includes('/resources')) return Response.json([]);
+      return Response.json({ authToken: 'victim-token' });
+    });
+    const app = createServer({ database: (async () => []) as unknown as Database });
+    const unknown = await app.inject({ method: 'GET', url: '/api/v1/setup/plex-pin/99999' });
+    expect(unknown.statusCode).toBe(404);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const started = await app.inject({ method: 'POST', url: '/api/v1/setup/plex-pin' });
+    expect(started.statusCode).toBe(200);
+    const cookieHeader = String(started.headers['set-cookie']).split(';')[0];
+    const calls = fetchSpy.mock.calls.length;
+    expect((await app.inject({ method: 'GET', url: '/api/v1/setup/plex-pin/42' })).statusCode).toBe(404);
+    expect(fetchSpy.mock.calls.length).toBe(calls);
+    const own = await app.inject({ method: 'GET', url: '/api/v1/setup/plex-pin/42', headers: { cookie: cookieHeader } });
+    expect(own.statusCode).toBe(200);
+    expect(own.json().authToken).toBeNull();
+    expect(String(started.headers['set-cookie'])).toContain('HttpOnly');
+    fetchSpy.mockImplementation(async input => String(input).includes('/resources') ? Response.json([]) : Response.json({ authToken: 'own-fixture-token' }));
+    const completed = await app.inject({ method: 'GET', url: '/api/v1/setup/plex-pin/42', headers: { cookie: cookieHeader } });
+    expect(completed.json().authToken).toBe('own-fixture-token');
+    expect((await app.inject({ method: 'GET', url: '/api/v1/setup/plex-pin/42', headers: { cookie: cookieHeader } })).statusCode).toBe(404);
+    // A fresh issued PIN expires locally even if an upstream still returns a token.
+    fetchSpy.mockImplementation(async () => Response.json({ id: 43, code: 'fixture', authToken: null }));
+    const fresh = await app.inject({ method: 'POST', url: '/api/v1/setup/plex-pin' });
+    const freshCookie = String(fresh.headers['set-cookie']).split(';')[0];
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 600_001);
+    const beforeExpired = fetchSpy.mock.calls.length;
+    expect((await app.inject({ method: 'GET', url: '/api/v1/setup/plex-pin/43', headers: { cookie: freshCookie } })).statusCode).toBe(404);
+    expect(fetchSpy.mock.calls.length).toBe(beforeExpired);
+    dateNow.mockRestore();
+  });
+});
