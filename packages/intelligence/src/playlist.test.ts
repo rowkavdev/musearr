@@ -29,6 +29,14 @@ const seed = track({
 })
 
 describe('generateFromSeed', () => {
+  it('handles a library larger than the runtime argument limit', () => {
+    const library = Array.from({ length: 200_000 }, (_, index) =>
+      index === 0 ? seed : track({ trackId: `t-${index}`, albumId: `album-${index}`, playCount: index % 12 }),
+    )
+    const plan = generateFromSeed(seed, library, { targetSize: 5 })
+    expect(plan.items.length).toBeGreaterThan(0)
+  })
+
   it('orders library tracks by fit and keeps the plan anchored to the seed', () => {
     const library = [
       seed,

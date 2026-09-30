@@ -79,7 +79,8 @@ export function rankRecommendations(
 }
 
 function buildContext(candidates: RecommendationCandidate[], now: Date): RankingContext {
-  const maxPlayCount = Math.max(1, ...candidates.map((candidate) => candidate.playCount))
+  let maxPlayCount = 1
+  for (const candidate of candidates) maxPlayCount = Math.max(maxPlayCount, candidate.playCount)
   const artistTotals = new Map<string, number>()
   const genreTotals = new Map<string, number>()
 
@@ -286,7 +287,8 @@ function buildSummary(
 }
 
 function normaliseAffinity(source: Map<string, number>): Map<string, number> {
-  const maximum = Math.max(1, ...source.values())
+  let maximum = 1
+  for (const value of source.values()) maximum = Math.max(maximum, value)
   return new Map([...source.entries()].map(([key, value]) => [key, clamp(value / maximum, 0, 1)]))
 }
 

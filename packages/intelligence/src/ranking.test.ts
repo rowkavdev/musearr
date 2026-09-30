@@ -59,6 +59,14 @@ const candidates: RecommendationCandidate[] = [
 ]
 
 describe('rankRecommendations', () => {
+  it('handles candidate lists larger than the runtime argument limit', () => {
+    const large = Array.from({ length: 200_000 }, (_, index) => ({
+      ...candidates[0]!, trackId: `track-${index}`, artistId: `artist-${index}`, albumId: `album-${index}`,
+      playCount: index % 12,
+    }))
+    expect(rankRecommendations(large, 'daily_mix', { limit: 5, now })).toHaveLength(5)
+  })
+
   it('surfaces a long-unplayed, well-loved track as a forgotten favourite', () => {
     const ranked = rankRecommendations(candidates, 'forgotten_favourites', { limit: 10, now })
 
