@@ -407,43 +407,58 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       return sendProblem(reply, 400, 'INVALID_REQUEST', 'Provide a valid playlist proposal id.')
     }
 
-    const proposal = await getPlaylistProposal(database, id, request.user.sub)
-    if (!proposal) {
-      return sendProblem(reply, 404, 'PROPOSAL_NOT_FOUND', 'Playlist proposal not found.')
-    }
-
-    const sources = await getLibrarySyncSources(database)
-    const source = sources[0]
-    if (!source) {
-      return sendProblem(reply, 400, 'NO_PLEX_SERVER', 'No Plex server configured for playlist export.')
-    }
-
-    const encryptionKey = configurationForSetup(config)
-    if (!encryptionKey) {
-      return sendProblem(reply, 503, 'MISSING_ENCRYPTION_KEY', 'Encryption key is missing.')
-    }
-
-    try {
-      const plexToken = decryptSecret(source.tokenCiphertext, encryptionKey)
-      const client = new PlexClient(source.baseUrl, plexToken)
-      const trackRatingKeys = proposal.items.map((item) => item.plexRatingKey)
-
-      const createdPlexPlaylist = await client.createPlaylist(proposal.title, trackRatingKeys)
-      await markPlaylistProposalExported(
-        database,
-        proposal.id,
-        request.user.sub,
-        createdPlexPlaylist.plexRatingKey,
-      )
-
-      const updatedProposal = await getPlaylistProposal(database, proposal.id, request.user.sub)
-      return reply.send(PlaylistProposalSchema.parse(updatedProposal))
-    } catch (error) {
-      if (error instanceof PlexConnectionError) {
-        return sendProblem(reply, 502, error.code, error.message)
+    return database.begin(async (transaction) => {
+      // Serialize concurrent exports across API instances before reading status.
+      await transaction`
+        SELECT id FROM playlist_proposals
+        WHERE id = ${id}::uuid AND user_id = ${request.user.sub}::uuid
+        FOR UPDATE
+      `
+      const proposal = await getPlaylistProposal(transaction as unknown as Database, id, request.user.sub)
+      if (!proposal) {
+        return sendProblem(reply, 404, 'PROPOSAL_NOT_FOUND', 'Playlist proposal not found.')
       }
-      throw error
-    }
+
+      if (proposal.status === 'exported') {
+        return reply.send(PlaylistProposalSchema.parse(proposal))
+      }
+      if (proposal.status !== 'draft') {
+        return sendProblem(reply, 409, 'PROPOSAL_NOT_DRAFT', 'Only draft proposals can be exported.')
+      }
+
+      const sources = await getLibrarySyncSources(transaction as unknown as Database)
+      const source = sources[0]
+      if (!source) {
+        return sendProblem(reply, 400, 'NO_PLEX_SERVER', 'No Plex server configured for playlist export.')
+      }
+
+      const encryptionKey = configurationForSetup(config)
+      if (!encryptionKey) {
+        return sendProblem(reply, 503, 'MISSING_ENCRYPTION_KEY', 'Encryption key is missing.')
+      }
+
+      try {
+        const plexToken = decryptSecret(source.tokenCiphertext, encryptionKey)
+        const client = new PlexClient(source.baseUrl, plexToken)
+        const trackRatingKeys = proposal.items.map((item) => item.plexRatingKey)
+
+        const createdPlexPlaylist = await client.createPlaylist(proposal.title, trackRatingKeys)
+        await markPlaylistProposalExported(
+          transaction as unknown as Database,
+          proposal.id,
+          request.user.sub,
+          createdPlexPlaylist.plexRatingKey,
+        )
+
+        const updatedProposal = await getPlaylistProposal(transaction as unknown as Database, proposal.id, request.user.sub)
+        return reply.send(PlaylistProposalSchema.parse(updatedProposal))
+      } catch (error) {
+        if (error instanceof PlexConnectionError) {
+          return sendProblem(reply, 502, error.code, error.message)
+        }
+        throw error
+      }
+    })
   })
 
   app.post('/api/v1/setup/plex-pin', async (_request, reply) => {
