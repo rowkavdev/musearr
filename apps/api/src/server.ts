@@ -4,7 +4,7 @@ import jwt from '@fastify/jwt'
 import multipart from '@fastify/multipart'
 import swagger from '@fastify/swagger'
 import swaggerUi from '@fastify/swagger-ui'
-import { timingSafeEqual } from 'node:crypto'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { getConfig, type MusearrConfig } from '@musearr/config'
 import {
   CompleteSetupRequestSchema,
@@ -222,6 +222,14 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const config = options.config ?? getConfig()
   const database = options.database ?? createDatabase(config.DATABASE_URL)
   const ownsDatabase = !options.database
+  // PIN status is a credential-bearing capability, owned by its creator's
+  // browser. IDs alone are public sequential values, not authorization.
+  const setupPins = new Map<number, { owner: string; expiresAt: number }>()
+  const pinCookie = 'musearr-setup-pin'
+  const pinLifetimeMs = 10 * 60 * 1000
+  const prunePins = () => {
+    for (const [id, pin] of setupPins) if (pin.expiresAt <= Date.now()) setupPins.delete(id)
+  }
   let jobQueue: ApiJobQueue | null = options.jobQueue ?? null
   const app = Fastify({
     trustProxy: config.MUSEARR_TRUST_PROXY,
@@ -461,7 +469,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     })
   })
 
-  app.post('/api/v1/setup/plex-pin', async (_request, reply) => {
+  app.post('/api/v1/setup/plex-pin', async (request, reply) => {
     const existing = await getSetupStatus(database)
     if (existing.configured) {
       return sendProblem(
@@ -473,7 +481,15 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     }
 
     try {
+      prunePins()
+      if (setupPins.size >= 1000) return sendProblem(reply, 429, 'TOO_MANY_PINS', 'Too many pending Plex sign-ins. Try again later.')
       const pin = await createPlexPin()
+      const owner = randomBytes(32).toString('hex')
+      setupPins.set(pin.id, { owner, expiresAt: Date.now() + pinLifetimeMs })
+      reply.setCookie(pinCookie, owner, {
+        httpOnly: true, sameSite: 'strict', secure: request.protocol === 'https',
+        path: '/api/v1/setup/plex-pin', maxAge: pinLifetimeMs / 1000,
+      })
       return reply.send(
         PlexPinCreateResponseSchema.parse({
           id: pin.id,
@@ -506,12 +522,21 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       return sendProblem(reply, 400, 'INVALID_REQUEST', 'Provide a valid Plex sign-in id.')
     }
 
+    prunePins()
+    const issued = setupPins.get(id)
+    const owner = request.cookies[pinCookie]
+    if (!issued || !owner || !webhookSecretsMatch(issued.owner, owner)) {
+      return sendProblem(reply, 404, 'PIN_NOT_FOUND', 'Start Plex sign-in in this browser first.')
+    }
+
     try {
       const { authToken } = await checkPlexPin(id)
       if (!authToken) {
         return reply.send(PlexPinStatusResponseSchema.parse({ authToken: null, servers: [] }))
       }
       const servers = await listPlexServersForToken(authToken)
+      setupPins.delete(id)
+      reply.clearCookie(pinCookie, { path: '/api/v1/setup/plex-pin' })
       return reply.send(PlexPinStatusResponseSchema.parse({ authToken, servers }))
     } catch (error) {
       if (error instanceof PlexConnectionError) {
