@@ -862,3 +862,15 @@ function serialiseTimestamp(value: Date | string | null): string | null {
 }
 
 export { IN_FLIGHT_STATES }
+
+/** Close acquisition waits after 24 hours. A later Plex sync can still resolve
+ * the track in a new generation; no Lidarr downloads are cancelled here. */
+export async function expireStalledGenerationItems(database: Database, generationId: string): Promise<void> {
+  await database`
+    UPDATE playlist_generation_items
+    SET state = 'unavailable', updated_at = NOW()
+    WHERE generation_id = ${generationId}
+      AND state IN ('requested', 'downloading', 'imported')
+      AND COALESCE(acquisition_requested_at, created_at) < NOW() - INTERVAL '24 hours'
+  `
+}
