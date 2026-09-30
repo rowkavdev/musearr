@@ -1,3 +1,4 @@
+import { createServer } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LidarrClient, LidarrConnectionError, normaliseLidarrBaseUrl } from './client.js'
 
@@ -97,4 +98,22 @@ describe('LidarrClient bounded responses', () => {
     expect(result).toMatchObject({ instanceName: "Björk" })
   })
 
+})
+
+
+it('does not forward lidarr credentials to a redirect target (#75)', async () => {
+  let targetRequests = 0
+  const target = createServer((_request, response) => { targetRequests++; response.setHeader('content-type', 'application/json'); response.end('{}') })
+  await new Promise<void>(resolve => target.listen(0, '127.0.0.1', resolve))
+  const targetPort = (target.address() as { port: number }).port
+  const source = createServer((_request, response) => { response.writeHead(302, { location: `http://127.0.0.1:${targetPort}/target` }); response.end() })
+  await new Promise<void>(resolve => source.listen(0, '127.0.0.1', resolve))
+  const sourcePort = (source.address() as { port: number }).port
+  try {
+    await new LidarrClient(`http://127.0.0.1:${sourcePort}`, 'fixture-secret').systemStatus().catch(() => {})
+    expect(targetRequests).toBe(0)
+  } finally {
+    source.closeAllConnections(); target.closeAllConnections()
+    await Promise.all([new Promise<void>(resolve => source.close(() => resolve())), new Promise<void>(resolve => target.close(() => resolve()))])
+  }
 })
