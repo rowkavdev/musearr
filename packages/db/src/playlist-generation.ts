@@ -520,8 +520,8 @@ export async function updateGenerationItemAcquisition(
 }
 
 /**
- * Resolves acquired items against the Plex mirror by exact artist + title match
- * (case-insensitive). Returns the number of items newly matched. Idempotent:
+ * Resolves acquired items by exact artist + title + supplied album (case-insensitive).
+ * Ambiguous recordings remain unresolved rather than choosing a row arbitrarily. Returns the number of items newly matched. Idempotent:
  * an already-matched item is left untouched.
  */
 export async function matchGenerationItemsInLibrary(
@@ -536,19 +536,23 @@ export async function matchGenerationItemsInLibrary(
         matched_at = NOW(),
         updated_at = NOW()
     FROM (
-      SELECT t.id AS track_id,
-             t.plex_rating_key,
-             LOWER(ar.name) AS artist_lower,
-             LOWER(t.title) AS title_lower
-      FROM tracks t
-      JOIN albums al ON al.id = t.album_id
-      JOIN artists ar ON ar.id = al.artist_id
+      SELECT candidate.id AS item_id,
+             MIN(t.id::text)::uuid AS track_id,
+             MIN(t.plex_rating_key) AS plex_rating_key
+      FROM playlist_generation_items candidate
+      JOIN artists ar ON LOWER(ar.name) = LOWER(candidate.artist_name)
+      JOIN albums al ON al.artist_id = ar.id
+      JOIN tracks t ON t.album_id = al.id AND LOWER(t.title) = LOWER(candidate.track_title)
+      WHERE candidate.generation_id = ${generationId}
+        AND candidate.track_id IS NULL
+        AND candidate.state IN ('pending', 'requested', 'downloading', 'imported')
+        AND (candidate.album_title IS NULL OR LOWER(candidate.album_title) = LOWER(al.title))
+      GROUP BY candidate.id
+      HAVING COUNT(*) = 1
     ) m
-    WHERE pgi.generation_id = ${generationId}
+    WHERE pgi.id = m.item_id
       AND pgi.track_id IS NULL
       AND pgi.state IN ('pending', 'requested', 'downloading', 'imported')
-      AND LOWER(pgi.artist_name) = m.artist_lower
-      AND LOWER(pgi.track_title) = m.title_lower
   `
   return result.count ?? 0
 }
