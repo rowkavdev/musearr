@@ -220,6 +220,13 @@ async function start(): Promise<void> {
     async (jobs) => {
       for (const job of jobs) {
         const result = await reconcilePlaylistGenerations(database, config)
+        for (const generationId of result.readyToAcquire) {
+          await jobQueue!.send(
+            PLAYLIST_ACQUISITION_QUEUE,
+            { generationId },
+            { singletonKey: generationId },
+          )
+        }
         for (const generationId of result.readyToPublish) {
           await jobQueue!.send(
             PLAYLIST_PUBLISH_QUEUE,

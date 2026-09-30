@@ -18,6 +18,8 @@ export type PlaylistReconcileOutcome = {
   matched: number
   /** Generations now ready whose owner asked for a Plex publish. */
   readyToPublish: string[]
+  /** Generations with pending items, retried by the scheduled sweep. */
+  readyToAcquire: string[]
 }
 
 /**
@@ -42,6 +44,7 @@ export async function reconcilePlaylistGenerations(
 
   let matched = 0
   const readyToPublish: string[] = []
+  const readyToAcquire: string[] = []
 
   for (const generationId of generationIds) {
     if (client) {
@@ -52,6 +55,7 @@ export async function reconcilePlaylistGenerations(
     const counts = await getGenerationItemStateCounts(database, generationId)
     const inFlight = counts.pending + counts.requested + counts.downloading + counts.imported
     if (inFlight > 0) {
+      if (counts.pending > 0 && client) readyToAcquire.push(generationId)
       await setPlaylistGenerationStatus(database, generationId, 'awaiting_acquisition')
       continue
     }
@@ -63,7 +67,7 @@ export async function reconcilePlaylistGenerations(
     }
   }
 
-  return { scanned: generationIds.length, matched, readyToPublish }
+  return { scanned: generationIds.length, matched, readyToPublish, readyToAcquire }
 }
 
 async function advanceInFlightItems(

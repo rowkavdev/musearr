@@ -16,8 +16,9 @@ const lidarr = vi.hoisted(() => ({
   getAlbums: vi.fn(),
 }))
 vi.mock('@musearr/db', () => db)
-vi.mock('@musearr/lidarr', () => ({ LidarrClient: vi.fn(function LidarrClient() { return lidarr }) }))
+vi.mock('@musearr/lidarr', () => ({ LidarrClient: vi.fn(function LidarrClient() { return lidarr }), LidarrConnectionError: class LidarrConnectionError extends Error { constructor(public code: string, message = code) { super(message) } } }))
 const { requestPlaylistAcquisitions } = await import('./playlist-acquisition.js')
+const { LidarrConnectionError } = await import('@musearr/lidarr')
 const encryptionKey = randomBytes(32).toString('base64')
 const config = { MUSEARR_ENCRYPTION_KEY: encryptionKey } as never
 const database = {} as never
@@ -64,5 +65,21 @@ describe('requestPlaylistAcquisitions artist matching', () => {
     ])
     expect(await requestPlaylistAcquisitions(database, config, 'gen-1')).toEqual({ requested: 0, unavailable: 1 })
     expect(lidarr.addArtist).not.toHaveBeenCalled()
+  })
+})
+
+describe('requestPlaylistAcquisitions transient errors', () => {
+  it('leaves an unreachable lookup pending for the scheduled retry', async () => {
+    lidarr.lookupArtist.mockRejectedValue(new LidarrConnectionError('UNREACHABLE', 'Lidarr timed out'))
+    db.getGenerationItemStateCounts.mockResolvedValue({ pending: 1, requested: 0, downloading: 0, imported: 0, unavailable: 0 })
+    expect(await requestPlaylistAcquisitions(database, config, 'gen-1')).toEqual({ requested: 0, unavailable: 0 })
+    expect(db.updateGenerationItemAcquisition).not.toHaveBeenCalled()
+    expect(db.setPlaylistGenerationStatus).toHaveBeenCalledWith(database, 'gen-1', 'awaiting_acquisition')
+  })
+
+  it('still marks a confirmed lookup miss unavailable', async () => {
+    lidarr.lookupArtist.mockResolvedValue([])
+    expect(await requestPlaylistAcquisitions(database, config, 'gen-1')).toEqual({ requested: 0, unavailable: 1 })
+    expect(db.updateGenerationItemAcquisition).toHaveBeenCalledWith(database, 'item-1', { state: 'unavailable' })
   })
 })
