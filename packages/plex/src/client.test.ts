@@ -1,3 +1,4 @@
+import { createServer } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PlexClient, PlexConnectionError, normalisePlexBaseUrl } from './client.js'
 
@@ -158,4 +159,22 @@ describe('PlexClient bounded responses', () => {
 
   })
 
+})
+
+
+it('does not forward plex credentials to a redirect target (#73)', async () => {
+  let targetRequests = 0
+  const target = createServer((_request, response) => { targetRequests++; response.setHeader('content-type', 'application/json'); response.end('{}') })
+  await new Promise<void>(resolve => target.listen(0, '127.0.0.1', resolve))
+  const targetPort = (target.address() as { port: number }).port
+  const source = createServer((_request, response) => { response.writeHead(302, { location: `http://127.0.0.1:${targetPort}/target` }); response.end() })
+  await new Promise<void>(resolve => source.listen(0, '127.0.0.1', resolve))
+  const sourcePort = (source.address() as { port: number }).port
+  try {
+    await new PlexClient(`http://127.0.0.1:${sourcePort}`, 'fixture-secret').testConnection().catch(() => {})
+    expect(targetRequests).toBe(0)
+  } finally {
+    source.closeAllConnections(); target.closeAllConnections()
+    await Promise.all([new Promise<void>(resolve => source.close(() => resolve())), new Promise<void>(resolve => target.close(() => resolve()))])
+  }
 })

@@ -344,6 +344,7 @@ export class PlexClient {
 
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
+        redirect: 'error',
         method,
         headers: {
           ...PLEX_HEADERS,
@@ -388,6 +389,7 @@ async function plexTvRequest<T>(path: string, init: RequestInit = {}): Promise<T
 
   try {
     const response = await fetch(`${PLEX_TV_BASE_URL}${path}`, {
+      redirect: 'error',
       ...init,
       headers: { ...PLEX_HEADERS, ...(init.headers as Record<string, string> | undefined) },
       signal: controller.signal,
