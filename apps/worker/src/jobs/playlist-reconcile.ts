@@ -1,6 +1,7 @@
 import type { MusearrConfig } from '@musearr/config'
 import { decryptSecret } from '@musearr/core'
 import {
+  expireStalledGenerationItems,
   getGenerationIdsAwaitingAcquisition,
   getGenerationItemsByState,
   getGenerationItemStateCounts,
@@ -51,6 +52,9 @@ export async function reconcilePlaylistGenerations(
       await advanceInFlightItems(database, client, generationId)
     }
     matched += await matchGenerationItemsInLibrary(database, generationId)
+
+    // Give the Plex mirror one last chance before closing a stalled acquisition.
+    await expireStalledGenerationItems(database, generationId)
 
     const counts = await getGenerationItemStateCounts(database, generationId)
     const inFlight = counts.pending + counts.requested + counts.downloading + counts.imported
@@ -103,14 +107,16 @@ async function advanceInFlightItems(
     }
     const files = trackFilesByArtist.get(item.lidarrArtistId) ?? []
     const hasFile = files.some(
-      (file) => item.lidarrAlbumId === null || file.albumId === item.lidarrAlbumId,
+      (file) => item.lidarrAlbumId !== null && file.albumId === item.lidarrAlbumId,
     )
     if (hasFile) {
       await updateGenerationItemAcquisition(database, item.id, { state: 'imported' })
       continue
     }
     const downloading = queue.some(
-      (record) => record.artistId === item.lidarrArtistId && isActiveDownload(record.status),
+      (record) => record.artistId === item.lidarrArtistId
+        && item.lidarrAlbumId !== null && record.albumId === item.lidarrAlbumId
+        && isActiveDownload(record.status),
     )
     if (downloading) {
       await updateGenerationItemAcquisition(database, item.id, { state: 'downloading' })
@@ -120,5 +126,5 @@ async function advanceInFlightItems(
 
 function isActiveDownload(status: string): boolean {
   const normalised = status.toLowerCase()
-  return normalised === 'downloading' || normalised === 'queued' || normalised === 'paused'
+  return normalised === 'downloading' || normalised === 'queued'
 }
