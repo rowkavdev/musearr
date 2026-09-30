@@ -359,10 +359,10 @@ export class PlexClient {
         throw new PlexConnectionError('UNREACHABLE', 'Musearr could not reach the Plex server.')
       }
 
-      if (response.status === 204 || response.headers.get('content-length') === '0') {
+      if (response.status === 204) {
         return undefined as T
       }
-      const text = await response.text()
+      const text = await readBoundedResponse(response)
       if (text.trim().length === 0) {
         return undefined as T
       }
@@ -395,7 +395,7 @@ async function plexTvRequest<T>(path: string, init: RequestInit = {}): Promise<T
     if (!response.ok) {
       throw new PlexConnectionError('UNREACHABLE', 'Musearr could not reach plex.tv.')
     }
-    return (await response.json()) as T
+    return JSON.parse(await readBoundedResponse(response)) as T
   } catch (error) {
     if (error instanceof PlexConnectionError) {
       throw error
@@ -528,3 +528,35 @@ function timestampOrNull(value: unknown): string | null {
     : null
 }
 
+
+// Caps decoded bytes too: Content-Length can be missing, wrong, or compressed.
+const MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+
+async function readBoundedResponse(response: Response): Promise<string> {
+  const declared = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {
+    await response.body?.cancel().catch(() => {})
+    throw new PlexConnectionError('INVALID_RESPONSE', 'Plex response exceeds the 16 MiB limit.')
+  }
+  if (!response.body) return ''
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  const parts: string[] = []
+  let bytes = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      bytes += value.byteLength
+      if (bytes > MAX_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => {})
+        throw new PlexConnectionError('INVALID_RESPONSE', 'Plex response exceeds the 16 MiB limit.')
+      }
+      parts.push(decoder.decode(value, { stream: true }))
+    }
+    parts.push(decoder.decode())
+    return parts.join('')
+  } finally {
+    reader.releaseLock()
+  }
+}
