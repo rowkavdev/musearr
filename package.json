@@ -24,7 +24,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^5.0.0",
     "eslint": "^10.0.0",
     "ghost-deps": "^0.1.6",
     "prettier": "^3.6.2",
@@ -32,6 +32,6 @@
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.66.0",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.0"
   }
 }
