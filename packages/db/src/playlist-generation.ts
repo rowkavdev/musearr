@@ -641,6 +641,26 @@ export async function linkManagedPlexPlaylist(
   })
 }
 
+/**
+ * The Plex playlist a failed first publish created but never linked, if any.
+ * A failed publication row keeps the created rating key, so a retry can adopt
+ * that playlist instead of creating a second one.
+ */
+export async function getOrphanedPlexPlaylistKey(database: Database, generationId: string): Promise<string | null> {
+  const rows = await database<Array<{ plex_playlist_rating_key: string | null }>>`
+    SELECT publication.plex_playlist_rating_key
+    FROM playlist_publications publication
+    JOIN playlist_generations generation ON generation.id = publication.generation_id
+    WHERE publication.generation_id = ${generationId}
+      AND generation.plex_playlist_id IS NULL
+      AND publication.status = 'failed'
+      AND publication.plex_playlist_rating_key IS NOT NULL
+    ORDER BY publication.created_at DESC
+    LIMIT 1
+  `
+  return rows[0]?.plex_playlist_rating_key ?? null
+}
+
 export async function recordPlaylistPublication(
   database: Database,
   input: {
