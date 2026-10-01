@@ -6,6 +6,7 @@ describe('playlist failure sanitisation', () => {
     [new Error('MUSEARR_ENCRYPTION_KEY is required before publish can run.'), 'configuration', false],
     [new Error('The seed track is no longer in the library.'), 'configuration', false],
     [new Error('Lidarr rejected the supplied API key'), 'authentication', false],
+    [new Error('Lidarr is missing a root folder or quality/metadata profile for new artists.'), 'configuration', false],
     [new Error('Musearr could not reach the Lidarr server.'), 'acquisition_unavailable', true],
     [new Error('Plex returned an unreadable response'), 'plex_write_failed', true],
     ['api-key=secret-value', 'unknown', true],
