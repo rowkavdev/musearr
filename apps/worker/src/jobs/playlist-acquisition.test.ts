@@ -93,7 +93,7 @@ it('does not search an arbitrary album when exact titles are ambiguous', async (
   await requestPlaylistAcquisitions(database, config, 'gen-1');
   expect(lidarr.setAlbumsMonitored).not.toHaveBeenCalled();
   expect(lidarr.searchAlbums).not.toHaveBeenCalled();
-  expect(db.updateGenerationItemAcquisition).toHaveBeenCalledWith(database, 'item-1', expect.objectContaining({ lidarrAlbumId: null }));
+  expect(db.updateGenerationItemAcquisition).toHaveBeenCalledWith(database, 'item-1', { state: 'unavailable', lidarrArtistId: 42 });
 });
 it('searches the single exact album while ignoring unrelated titles', async () => {
   db.getGenerationItemsByState.mockResolvedValue([{ id: 'item-1', artistName: 'Nirvana', albumTitle: 'Live' }]);
@@ -103,3 +103,12 @@ it('searches the single exact album while ignoring unrelated titles', async () =
   expect(lidarr.setAlbumsMonitored).toHaveBeenCalledWith([102], true);
   expect(lidarr.searchAlbums).toHaveBeenCalledWith([102]);
 });
+
+it('marks an item unavailable when its album title matches no release, so the generation is not held open', async () => {
+  db.getGenerationItemsByState.mockResolvedValue([{ id: 'item-1', artistName: 'Nirvana', albumTitle: 'Nevermind' }])
+  lidarr.getArtists.mockResolvedValue([{ id: 42, artistName: 'Nirvana', foreignArtistId: 'one' }])
+  lidarr.getAlbums.mockResolvedValue([{ id: 101, title: 'Bleach' }])
+  expect(await requestPlaylistAcquisitions(database, config, 'gen-1')).toEqual({ requested: 0, unavailable: 1 })
+  expect(db.updateGenerationItemAcquisition).toHaveBeenCalledWith(database, 'item-1', { state: 'unavailable', lidarrArtistId: 42 })
+  expect(lidarr.searchAlbums).not.toHaveBeenCalled()
+})

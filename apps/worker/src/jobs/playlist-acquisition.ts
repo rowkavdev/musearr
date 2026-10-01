@@ -69,6 +69,15 @@ export async function requestPlaylistAcquisitions(
       }
 
       const albumId = item.albumTitle ? await findAlbumId(client, artistId, item.albumTitle) : null
+      if (item.albumTitle && albumId === null) {
+        // The album could not be identified (missing or ambiguous title), so
+        // nothing album-specific was requested and the reconciler, which tracks
+        // items by album id, could never advance this one. Leaving it
+        // 'requested' would hold the whole generation in awaiting_acquisition.
+        await updateGenerationItemAcquisition(database, item.id, { state: 'unavailable', lidarrArtistId: artistId })
+        unavailable += 1
+        continue
+      }
       if (albumId !== null) {
         await client.setAlbumsMonitored([albumId], true)
         await client.searchAlbums([albumId])
