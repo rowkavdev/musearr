@@ -127,6 +127,7 @@ describe('publishPlaylistToPlex', () => {
 
   it('only appends new items to the playlist it already owns on re-publish', async () => {
     db.getPlaylistGenerationJobContext.mockResolvedValue(context({ plexPlaylistRatingKey: '9001', status: 'published' }))
+    plex.audioPlaylists.mockResolvedValue([{ plexRatingKey: '9001', title: 'Late Night', revision: null }])
     db.getPublishableGenerationItems.mockResolvedValue([{ id: 'item-3', plexRatingKey: '1003' }])
 
     const outcome = await publishPlaylistToPlex(database, config, 'gen-1')
@@ -138,8 +139,24 @@ describe('publishPlaylistToPlex', () => {
     expect(outcome).toEqual({ created: false, added: 1, status: 'published' })
   })
 
+  it('recreates the managed playlist when the linked one was deleted in Plex', async () => {
+    db.getPlaylistGenerationJobContext.mockResolvedValue(context({ plexPlaylistRatingKey: '9001', status: 'published' }))
+    plex.audioPlaylists.mockResolvedValue([])
+    plex.createAudioPlaylist.mockResolvedValue({ plexRatingKey: '9002', title: 'Late Night' })
+
+    const outcome = await publishPlaylistToPlex(database, config, 'gen-1')
+
+    expect(plex.addPlaylistItems).not.toHaveBeenCalled()
+    expect(plex.createAudioPlaylist).toHaveBeenCalledWith('machine-1', 'Late Night', ['1001', '1002'])
+    expect(db.linkManagedPlexPlaylist).toHaveBeenCalledWith(database, {
+      generationId: 'gen-1', plexServerId: 'server-1', plexRatingKey: '9002', name: 'Late Night',
+    })
+    expect(outcome).toMatchObject({ created: true, added: 2 })
+  })
+
   it('#97 does not re-add tracks already in the Plex playlist after a failed bookkeeping write', async () => {
     db.getPlaylistGenerationJobContext.mockResolvedValue(context({ plexPlaylistRatingKey: '9001', status: 'publishing' }))
+    plex.audioPlaylists.mockResolvedValue([{ plexRatingKey: '9001', title: 'Late Night', revision: null }])
     db.getPublishableGenerationItems.mockResolvedValue([
       { id: 'item-1', plexRatingKey: '1001' },
       { id: 'item-2', plexRatingKey: '1002' },

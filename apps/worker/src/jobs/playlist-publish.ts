@@ -73,6 +73,16 @@ export async function publishPlaylistToPlex(
   try {
     if (!plexPlaylistRatingKey && ratingKeys.length > 0) {
       plexPlaylistRatingKey = await adoptOrphanedPlaylist(database, client, generationId, source.plexServerId)
+    } else if (plexPlaylistRatingKey && ratingKeys.length > 0) {
+      // The owner can delete the managed playlist in Plex after it was linked.
+      // Appending to the stale key fails every retry as a misleading Plex
+      // outage, so a link that no longer exists is recreated instead.
+      const stillExists = (await client.audioPlaylists()).some(
+        (playlist) => playlist.plexRatingKey === plexPlaylistRatingKey,
+      )
+      if (!stillExists) {
+        plexPlaylistRatingKey = null
+      }
     }
     if (!plexPlaylistRatingKey) {
       if (ratingKeys.length === 0) {
