@@ -77,12 +77,7 @@ export async function publishPlaylistToPlex(
       // The owner can delete the managed playlist in Plex after it was linked.
       // Appending to the stale key fails every retry as a misleading Plex
       // outage, so a link that no longer exists is recreated instead.
-      const stillExists = (await client.audioPlaylists()).some(
-        (playlist) => playlist.plexRatingKey === plexPlaylistRatingKey,
-      )
-      if (!stillExists) {
-        plexPlaylistRatingKey = null
-      }
+      plexPlaylistRatingKey = await keepIfPlaylistExists(client, plexPlaylistRatingKey)
     }
     if (!plexPlaylistRatingKey) {
       if (ratingKeys.length === 0) {
@@ -92,10 +87,7 @@ export async function publishPlaylistToPlex(
       // Plex has no ownership marker. A same-title playlist may belong to
       // the user, so only a rating key already linked to this generation is
       // safe to append to. Find an unused title for every first publish.
-      let title = context.name
-      for (let suffix = 1; await client.findAudioPlaylistByTitle(title); suffix += 1) {
-        title = `${context.name} (Musearr${suffix === 1 ? '' : ` ${suffix}`})`
-      }
+      const title = await unusedPlaylistTitle(client, context.name)
       const result = await client.createAudioPlaylist(source.machineIdentifier, title, ratingKeys)
       plexPlaylistRatingKey = result.plexRatingKey
       created = true
@@ -142,6 +134,19 @@ export async function publishPlaylistToPlex(
   })
 
   return { created, added: ratingKeys.length, status }
+}
+
+async function keepIfPlaylistExists(client: PlexClient, ratingKey: string): Promise<string | null> {
+  const playlists = await client.audioPlaylists()
+  return playlists.some((playlist) => playlist.plexRatingKey === ratingKey) ? ratingKey : null
+}
+
+async function unusedPlaylistTitle(client: PlexClient, name: string): Promise<string> {
+  let title = name
+  for (let suffix = 1; await client.findAudioPlaylistByTitle(title); suffix += 1) {
+    title = `${name} (Musearr${suffix === 1 ? '' : ` ${suffix}`})`
+  }
+  return title
 }
 
 /**
