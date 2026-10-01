@@ -9,3 +9,33 @@ export function shouldRetryPinPoll(status: number | null, consecutiveFailures: n
   if (consecutiveFailures >= PIN_POLL_MAX_FAILURES) return false
   return status === null || status >= 500
 }
+
+export const PIN_REQUEST_TIMEOUT_MS = 10_000
+
+export type PinCheck<T> = { ok: true; value: T } | { ok: false; status: number | null; message: string | null }
+
+/**
+ * One sign-in status check. A hung request is abandoned after the timeout, and a 200 whose body
+ * is not valid JSON counts as a failed check rather than a good one.
+ */
+export async function checkPinStatus<T>(
+  fetchImpl: typeof fetch,
+  url: string,
+  readIssue: (response: Response) => Promise<string>,
+  timeoutMs: number = PIN_REQUEST_TIMEOUT_MS,
+): Promise<PinCheck<T>> {
+  let response: Response
+  try {
+    response = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) })
+  } catch {
+    return { ok: false, status: null, message: null }
+  }
+  if (!response.ok) {
+    return { ok: false, status: response.status, message: await readIssue(response) }
+  }
+  try {
+    return { ok: true, value: (await response.json()) as T }
+  } catch {
+    return { ok: false, status: null, message: null }
+  }
+}
