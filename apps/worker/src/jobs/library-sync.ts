@@ -12,7 +12,7 @@ import {
   type LibrarySyncJob,
   type SyncFailureClassification,
 } from '@musearr/db'
-import { PlexClient } from '@musearr/plex'
+import { PlexClient, PlexConnectionError } from '@musearr/plex'
 
 const PAGE_SIZE = 200
 
@@ -75,6 +75,15 @@ export type SanitisedSyncFailure = {
 
 /** Converts operational errors into a stable, secret-safe persisted failure. */
 export function sanitiseSyncFailure(error: unknown): SanitisedSyncFailure {
+  if (error instanceof PlexConnectionError) {
+    if (error.code === 'UNAUTHENTICATED') {
+      return { classification: 'authentication', summary: 'Plex authentication was rejected.', retryable: false }
+    }
+    if (error.code === 'UNREACHABLE') {
+      return { classification: 'upstream_unavailable', summary: 'Plex is temporarily unavailable.', retryable: true }
+    }
+    return { classification: 'upstream_response', summary: 'Plex returned an unexpected response.', retryable: true }
+  }
   const message = error instanceof Error ? error.message.toLowerCase() : ''
 
   if (message.includes('encryption') || message.includes('configuration') || message.includes('required before')) {
