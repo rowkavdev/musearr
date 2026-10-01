@@ -114,4 +114,15 @@ describe('MusicBrainzSimilarTrackProvider', () => {
       warn.mockRestore()
     }
   })
+
+  it('keeps the suggestions when the onLookupError callback itself throws', async () => {
+    const fetchImpl = neighbourFetch(() => new Response('gone', { status: 404 }))
+    const onLookupError = vi.fn(() => {
+      throw new Error('callback bug')
+    })
+    const provider = new MusicBrainzSimilarTrackProvider({ contact: 'ops@example.com', minRequestIntervalMs: 0, fetchImpl: fetchImpl as unknown as typeof fetch, onLookupError })
+    const suggestions = await provider.findSimilar(seed, 5)
+    expect(suggestions.map((s) => s.trackTitle)).toEqual(['Vapour Trail', 'Pearl'])
+    expect(onLookupError).toHaveBeenCalled()
+  })
 })
