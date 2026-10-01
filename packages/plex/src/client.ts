@@ -360,15 +360,19 @@ export class PlexClient {
         throw new PlexConnectionError('UNREACHABLE', 'Musearr could not reach the Plex server.')
       }
 
-      if (response.status === 204) {
-        return undefined as T
-      }
-      const text = await readBoundedResponse(response)
+      const text = response.status === 204 ? '' : await readBoundedResponse(response)
       if (text.trim().length === 0) {
-        return undefined as T
+        if (method !== 'GET') {
+          return undefined as T
+        }
+        throw new PlexConnectionError('INVALID_RESPONSE', 'Plex returned an empty response.')
       }
       try {
-        return JSON.parse(text) as T
+        const parsed: unknown = JSON.parse(text)
+        if (method === 'GET' && (parsed === null || typeof parsed !== 'object')) {
+          throw new Error('not an object')
+        }
+        return parsed as T
       } catch {
         throw new PlexConnectionError('INVALID_RESPONSE', 'Plex returned an unreadable response.')
       }
