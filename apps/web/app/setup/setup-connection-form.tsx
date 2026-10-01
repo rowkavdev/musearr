@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { shouldRetryPinPoll } from './pin-poll'
+import { checkPinStatus, shouldRetryPinPoll } from './pin-poll'
 import { useRouter } from 'next/navigation'
 
 type MusicLibrary = { id: string; title: string; type: 'artist' }
@@ -117,19 +117,13 @@ export function SetupConnectionForm() {
 
       let failedStatus: number | null = null
       try {
-        let response: Response
-        try {
-          response = await fetch(`/api/v1/setup/plex-pin/${pin.id}`)
-        } catch {
-          failedStatus = null
-          throw new Error('Musearr could not check Plex sign-in status.')
-        }
-        if (!response.ok) {
-          failedStatus = response.status
-          throw new Error(await getIssue(response))
+        const check = await checkPinStatus<PlexPinStatusResponse>(fetch, `/api/v1/setup/plex-pin/${pin.id}`, getIssue)
+        if (!check.ok) {
+          failedStatus = check.status
+          throw new Error(check.message ?? 'Musearr could not check Plex sign-in status.')
         }
         consecutiveFailures = 0
-        const status = (await response.json()) as PlexPinStatusResponse
+        const status = check.value
         if (generation !== pollGeneration.current) {
           return
         }
