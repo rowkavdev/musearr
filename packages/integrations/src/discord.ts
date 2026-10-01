@@ -26,8 +26,11 @@ export async function deliverDiscordDailyBrief(
   const url = new URL(webhookUrl)
   url.searchParams.set('wait', 'true')
   let response: Response
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 8_000)
   try {
     response = await fetcher(url, {
+      signal: controller.signal,
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -37,6 +40,8 @@ export async function deliverDiscordDailyBrief(
     })
   } catch {
     throw new DiscordDeliveryError()
+  } finally {
+    clearTimeout(timeout)
   }
 
   if (!response.ok) {

@@ -40,3 +40,19 @@ describe('Discord daily briefing delivery', () => {
     })
   })
 })
+
+
+it('aborts a webhook that never answers and returns a secret-safe error', async () => {
+  vi.useFakeTimers();
+  try {
+    const fetcher = vi.fn((_url: URL, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new Error('secret webhook URL')), { once: true });
+    }));
+    const delivery = deliverDiscordDailyBrief('https://discord.com/api/webhooks/123/token', brief, fetcher);
+    const checked = expect(delivery).rejects.toMatchObject({ name: 'DiscordDeliveryError', message: 'Discord could not be reached.' });
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(fetcher.mock.calls[0]?.[1].signal?.aborted).toBe(true);
+    await checked;
+    expect(vi.getTimerCount()).toBe(0);
+  } finally { vi.useRealTimers(); }
+});
