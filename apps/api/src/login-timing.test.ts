@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Database } from '@musearr/db'
 
 const verifyPassword = vi.hoisted(() => vi.fn(async () => false))
+const hashPassword = vi.hoisted(() => vi.fn(async () => 'scrypt$1$1$1$c2FsdA$aGFzaA'))
 
 vi.mock('@musearr/core', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@musearr/core')>()),
   verifyPassword,
+  hashPassword,
 }))
 
 const { getConfig } = await import('@musearr/config')
@@ -46,5 +48,20 @@ describe('login timing', () => {
 
     expect(response.statusCode).toBe(401)
     expect(verifyPassword).toHaveBeenCalledTimes(1)
+  })
+
+  it('builds the dummy hash at startup so the first unknown-user login does no extra hashing', async () => {
+    hashPassword.mockClear()
+    const app = createServer({ database: (async () => []) as unknown as Database })
+    await app.ready()
+    expect(hashPassword).toHaveBeenCalledTimes(1)
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      headers: { origin: 'https://musearr.test' },
+      payload: { username: 'nobody', password: 'whatever-it-is' },
+    })
+    expect(hashPassword).toHaveBeenCalledTimes(1)
   })
 })
