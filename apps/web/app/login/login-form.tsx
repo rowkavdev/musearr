@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useState, type FormEvent } from 'react'
+import { loginFailureMessage } from './login-error'
 
 export function LoginForm() {
   const router = useRouter()
@@ -21,7 +22,7 @@ export function LoginForm() {
         body: JSON.stringify({ username, password }),
       })
       if (!response.ok) {
-        setMessage('The local owner name or password is not correct.')
+        setMessage(loginFailureMessage(response.status, response.headers.get('retry-after')))
         return
       }
       setPassword('')
