@@ -268,6 +268,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   app.register(jwt, {
     secret: sessionSecret(config),
     cookie: { cookieName: SESSION_COOKIE, signed: false },
+    // Sessions issued before tokens carried an exp have no expiry claim. Age them out from iat
+    // so they stop working when their 30 day cookie would have lapsed anyway.
+    verify: { maxAge: SESSION_MAX_AGE_SECONDS },
   })
   app.register(swagger, {
     openapi: {

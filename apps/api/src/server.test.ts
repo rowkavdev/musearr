@@ -479,4 +479,19 @@ describe('session lifetime', () => {
     expect(claims?.exp).toBeDefined()
     expect(claims!.exp! - claims!.iat).toBe(60 * 60 * 24 * 30)
   })
+
+  it('rejects a legacy token with no exp once it is older than the session lifetime', async () => {
+    const app = createServer()
+    await app.ready()
+    const day = 60 * 60 * 24
+    const now = Math.floor(Date.now() / 1000)
+    const old = app.jwt.sign({ sub: 'owner-id', role: 'owner', iat: now - 31 * day } as { sub: string; role: 'owner' })
+    const recent = app.jwt.sign({ sub: 'owner-id', role: 'owner', iat: now - 29 * day } as { sub: string; role: 'owner' })
+    expect(app.jwt.decode<{ exp?: number }>(old)?.exp).toBeUndefined()
+
+    const stale = await app.inject({ method: 'GET', url: '/api/v1/auth/me', headers: { cookie: `musearr_session=${old}` } })
+    const fresh = await app.inject({ method: 'GET', url: '/api/v1/auth/me', headers: { cookie: `musearr_session=${recent}` } })
+    expect(stale.statusCode).toBe(401)
+    expect(fresh.statusCode).not.toBe(401)
+  })
 })
