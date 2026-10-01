@@ -712,7 +712,28 @@ export async function getLibrarySyncSources(
   }))
 }
 
+/** A run still marked running after this long was orphaned by a crash, OOM kill or redeploy. */
+export const STALE_SYNC_RUN_HOURS = 6
+
+/** Classified as retryable so getResumableSyncProgress can continue from the saved cursor. */
+export const INTERRUPTED_SYNC_SUMMARY = 'upstream_unavailable: The sync was interrupted before it finished.'
+
+/**
+ * Marks orphaned running rows as failed. Nothing else ever moves a row whose worker died, so
+ * the dashboard would show "Syncing" forever and the resume path (failed rows only) never saw it.
+ * A live worker that finishes later still overwrites this with 'completed' in completeSyncRun.
+ */
+export async function reapStaleSyncRuns(database: Database): Promise<void> {
+  await database`
+    UPDATE sync_runs
+    SET status = 'failed', finished_at = NOW(), error_summary = ${INTERRUPTED_SYNC_SUMMARY}
+    WHERE status = 'running'
+      AND COALESCE(started_at, created_at) < NOW() - make_interval(hours => ${STALE_SYNC_RUN_HOURS})
+  `
+}
+
 export async function listSyncRuns(database: Database, limit = 50): Promise<SyncRunRecord[]> {
+  await reapStaleSyncRuns(database)
   const rows = await database<SyncRunRow[]>`
     SELECT sr.id, sr.library_section_id, ls.title AS library_title, sr.kind, sr.status,
            sr.counts, sr.error_summary, sr.started_at, sr.finished_at, sr.created_at
@@ -751,6 +772,7 @@ export async function getResumableSyncProgress(
   database: Database,
   librarySectionId: string,
 ): Promise<SyncProgress | null> {
+  await reapStaleSyncRuns(database)
   const rows = await database<Array<{ status: string; error_summary: string | null; cursor: unknown; counts: unknown; recent: boolean }>>`
     SELECT status, error_summary, cursor, counts,
            COALESCE(finished_at, created_at) > NOW() - make_interval(hours => ${RESUMABLE_SYNC_MAX_AGE_HOURS}) AS recent
