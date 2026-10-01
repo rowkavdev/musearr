@@ -1995,3 +1995,17 @@ function parseStoredSyncFailure(value: string): SyncRunRecord['failure'] {
   if (!match) return { classification: 'unknown', summary: 'The sync did not complete.' }
   return { classification: match[1] as SyncFailureClassification, summary: match[2] ?? 'The sync did not complete.' }
 }
+
+/** Current session version for an active user, or null when the user is missing or disabled. */
+export async function getSessionVersion(database: Database, userId: string): Promise<number | null> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) return null
+  const rows = await database<Array<{ session_version: number }>>`
+    SELECT session_version FROM users WHERE id = ${userId}::uuid AND disabled_at IS NULL LIMIT 1
+  `
+  return rows[0]?.session_version ?? null
+}
+
+/** Invalidates every session token issued for the user before this call. */
+export async function revokeUserSessions(database: Database, userId: string): Promise<void> {
+  await database`UPDATE users SET session_version = session_version + 1 WHERE id = ${userId}::uuid`
+}

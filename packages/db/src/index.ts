@@ -34,6 +34,8 @@ export {
   markPlaylistProposalExported,
   rebuildListeningRollups,
   updateSyncProgress,
+  getSessionVersion,
+  revokeUserSessions,
   upsertLibraryTracks,
   upsertUserPlaylists,
 } from './repository.js'
