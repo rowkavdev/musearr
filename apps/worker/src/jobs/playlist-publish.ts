@@ -114,7 +114,9 @@ export async function publishPlaylistToPlex(
       // in the playlist; Plex would append them a second time.
       const present = await playlistTrackKeys(client, plexPlaylistRatingKey)
       const missing = ratingKeys.filter((key) => !present.has(key))
-      await client.addPlaylistItems(plexPlaylistRatingKey, source.machineIdentifier, missing)
+      if (missing.length > 0) {
+        await client.addPlaylistItems(plexPlaylistRatingKey, source.machineIdentifier, missing)
+      }
     }
   } catch (error) {
     await recordPlaylistPublication(database, {
