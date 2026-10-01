@@ -217,21 +217,22 @@ export class PlexClient {
     const payload = await this.request<PlexTrackResponse>(
       `/library/sections/${encodeURIComponent(sectionId)}/all?type=10&X-Plex-Container-Start=${start}&X-Plex-Container-Size=${pageSize}`,
     )
-    const metadata = payload.MediaContainer?.Metadata ?? []
+    const metadata = plexRows(payload.MediaContainer?.Metadata)
+    const received = payload.MediaContainer?.Metadata?.length ?? 0
     const tracks = metadata.flatMap((item) => normaliseTrack(item))
 
     return {
       total: payload.MediaContainer?.totalSize ?? tracks.length,
       offset: start,
-      scanned: metadata.length,
+      scanned: received,
       items: tracks,
-      skipped: metadata.length - tracks.length,
+      skipped: received - tracks.length,
     }
   }
 
   async audioPlaylists(): Promise<PlexPlaylist[]> {
     const payload = await this.request<PlexPlaylistResponse>('/playlists?playlistType=audio')
-    return (payload.MediaContainer?.Metadata ?? [])
+    return plexRows(payload.MediaContainer?.Metadata)
       .filter((playlist) => playlist.ratingKey !== undefined && playlist.title && playlist.playlistType === 'audio')
       .map((playlist) => ({
         plexRatingKey: String(playlist.ratingKey),
@@ -246,7 +247,8 @@ export class PlexClient {
     const payload = await this.request<PlexPlaylistItemsResponse>(
       `/playlists/${encodeURIComponent(playlistId)}/items?X-Plex-Container-Start=${start}&X-Plex-Container-Size=${pageSize}`,
     )
-    const metadata = payload.MediaContainer?.Metadata ?? []
+    const metadata = plexRows(payload.MediaContainer?.Metadata)
+    const received = payload.MediaContainer?.Metadata?.length ?? 0
     const items = metadata.flatMap((item) => {
       if (item.ratingKey === undefined) {
         return []
@@ -262,9 +264,9 @@ export class PlexClient {
     return {
       total: payload.MediaContainer?.totalSize ?? items.length,
       offset: start,
-      scanned: metadata.length,
+      scanned: received,
       items,
-      skipped: metadata.length - items.length,
+      skipped: received - items.length,
     }
   }
 
@@ -408,6 +410,19 @@ export class PlexClient {
       clearTimeout(timeout)
     }
   }
+}
+
+/**
+ * Rows of a Plex MediaContainer list. A missing list is empty, a list that is
+ * not an array is an unreadable response, and non-object rows are skipped so a
+ * stray null cannot become a raw TypeError.
+ */
+function plexRows<T extends object>(value: T[] | undefined): T[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) {
+    throw new PlexConnectionError('INVALID_RESPONSE', 'Plex returned an unreadable response.')
+  }
+  return value.filter((row): row is T => typeof row === 'object' && row !== null)
 }
 
 async function plexTvRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
