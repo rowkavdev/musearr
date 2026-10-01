@@ -14,6 +14,21 @@ describe('normalisePlexBaseUrl', () => {
     expect(() => normalisePlexBaseUrl('ftp://plex.local')).toThrow(PlexConnectionError)
   })
 
+  it('rejects link-local and cloud metadata hosts but keeps LAN and loopback (#83)', () => {
+    for (const url of [
+      'http://169.254.169.254/latest/meta-data',
+      'http://169.254.1.1:32400',
+      'http://[fe80::1]:32400',
+      'http://[::ffff:169.254.169.254]/',
+      'http://metadata.google.internal/',
+    ]) {
+      expect(() => normalisePlexBaseUrl(url), url).toThrow(PlexConnectionError)
+    }
+    expect(normalisePlexBaseUrl('http://192.168.1.20:32400')).toBe('http://192.168.1.20:32400')
+    expect(normalisePlexBaseUrl('http://127.0.0.1:32400')).toBe('http://127.0.0.1:32400')
+    expect(normalisePlexBaseUrl('http://[::1]:32400')).toBe('http://[::1]:32400')
+  })
+
   it('maps Plex track pages while retaining source identifiers and optional playback fields', async () => {
     vi.stubGlobal(
       'fetch',
