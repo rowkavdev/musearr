@@ -464,6 +464,23 @@ describe('setup Plex PIN ownership (#82)', () => {
   });
 });
 
+describe('login input caps', () => {
+  it('rejects an over-long username or password before touching the database', async () => {
+    let queries = 0
+    const database = (async () => {
+      queries += 1
+      return []
+    }) as unknown as Database
+    const app = createServer({ database })
+    const post = (payload: object) =>
+      app.inject({ method: 'POST', url: '/api/v1/auth/login', headers: { origin: 'https://musearr.test' }, payload })
+
+    expect((await post({ username: 'a'.repeat(65), password: 'x' })).statusCode).toBe(400)
+    expect((await post({ username: 'owner', password: 'x'.repeat(1025) })).statusCode).toBe(400)
+    expect(queries).toBe(0)
+  })
+})
+
 describe('session lifetime', () => {
   it('issues a login token that expires with the 30 day cookie', async () => {
     const passwordHash = await hashPassword('correct horse battery')
