@@ -497,6 +497,34 @@ describe('session lifetime', () => {
     expect(stale.statusCode).toBe(401)
     expect(fresh.statusCode).not.toBe(401)
   })
+
+  it('throttles repeated failed logins', async () => {
+    const passwordHash = await hashPassword('correct horse battery')
+    const database = (async () => [{ id: 'user-1', password_hash: passwordHash, role: 'owner' }]) as unknown as Database
+    const app = createServer({ database })
+    const login = (password: string) =>
+      app.inject({ method: 'POST', url: '/api/v1/auth/login', headers: { origin: 'https://musearr.test' }, payload: { username: 'owner', password } })
+
+    for (let i = 0; i < 10; i++) expect((await login(`wrong-${i}`)).statusCode).toBe(401)
+    const blocked = await login('correct horse battery')
+    expect(blocked.statusCode).toBe(429)
+    expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0)
+    expect(blocked.json()).toMatchObject({ code: 'TOO_MANY_ATTEMPTS' })
+  })
+
+  it('counts parallel wrong guesses before any password check finishes', async () => {
+    const passwordHash = await hashPassword('correct horse battery')
+    const database = (async () => [{ id: 'user-1', password_hash: passwordHash, role: 'owner' }]) as unknown as Database
+    const app = createServer({ database })
+    const responses = await Promise.all(
+      Array.from({ length: 60 }, (_, i) =>
+        app.inject({ method: 'POST', url: '/api/v1/auth/login', headers: { origin: 'https://musearr.test' }, payload: { username: 'owner', password: `wrong-${i}` } }),
+      ),
+    )
+    const codes = responses.map((response) => response.statusCode)
+    expect(codes.filter((code) => code === 401)).toHaveLength(10)
+    expect(codes.filter((code) => code === 429)).toHaveLength(50)
+  })
 })
 
 describe('session revocation (#96)', () => {
