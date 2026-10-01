@@ -87,6 +87,7 @@ import {
 import { LidarrClient, LidarrConnectionError, normaliseLidarrBaseUrl } from '@musearr/lidarr'
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
 import type { PgBoss } from 'pg-boss'
+import { createLoginThrottle } from './login-throttle.js'
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
@@ -716,10 +717,20 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     }
   })
 
+  const loginThrottle = createLoginThrottle()
+
   app.post('/api/v1/auth/login', async (request, reply) => {
     const body = request.body as { username?: unknown; password?: unknown }
     if (typeof body?.username !== 'string' || typeof body?.password !== 'string') {
       return sendProblem(reply, 400, 'INVALID_REQUEST', 'Enter your local owner credentials.')
+    }
+
+    const throttleAddress = request.ip
+    const throttleUsername = body.username.trim().toLowerCase()
+    const retryAfter = loginThrottle.reserve(throttleAddress, throttleUsername)
+    if (retryAfter > 0) {
+      reply.header('Retry-After', String(retryAfter))
+      return sendProblem(reply, 429, 'TOO_MANY_ATTEMPTS', 'Too many failed sign-in attempts. Try again in a few minutes.')
     }
 
     const users = await database<Array<{ id: string; password_hash: string; role: 'owner' | 'member'; session_version: number }>>`
@@ -733,6 +744,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       return sendProblem(reply, 401, 'INVALID_CREDENTIALS', 'The username or password is not correct.')
     }
 
+    loginThrottle.recordSuccess(throttleAddress, throttleUsername)
     setSession(reply, { id: user.id, role: user.role }, user.session_version)
     return reply.code(204).send()
   })
