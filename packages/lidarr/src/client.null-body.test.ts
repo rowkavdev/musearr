@@ -17,6 +17,13 @@ describe('null JSON bodies', () => {
   it.each(['null', ''])('addArtist reports INVALID_RESPONSE for %j', async (body) => {
     await expect(client(body).addArtist({} as never)).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
   })
+  it.each(['null', '', '"x"', '7'])('getQueue reports INVALID_RESPONSE for %j instead of a TypeError', async (body) => {
+    await expect(client(body).getQueue()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+  })
+  it('getQueue still reads a normal page and a bare array', async () => {
+    expect(await client('{"records":[{"id":1,"status":"downloading"}],"totalRecords":1}').getQueue()).toHaveLength(1)
+    expect(await client('[{"id":2}]').getQueue()).toHaveLength(1)
+  })
   it('list endpoints skip null rows', async () => {
     expect(await client('[null]').rootFolders()).toEqual([])
     expect(await client('[null]').getArtists()).toEqual([])

@@ -252,10 +252,13 @@ export class LidarrClient {
   async getQueue(): Promise<LidarrQueueRecord[]> {
     const records: UnknownRecord[] = []
     for (let page = 1; page <= 50; page++) {
-      const payload = await this.request<UnknownRecord>(
+      const payload = await this.request<UnknownRecord | null | undefined>(
         'GET',
         `/api/v1/queue?page=${page}&pageSize=200&includeArtist=false&includeAlbum=false`,
       )
+      if (typeof payload !== 'object' || payload === null) {
+        throw new LidarrConnectionError('INVALID_RESPONSE', 'Lidarr returned an unreadable download queue.')
+      }
       const batch = Array.isArray(payload.records) ? (payload.records as UnknownRecord[]) : asArray(payload)
       records.push(...batch)
       const total = integerOrNull(payload.totalRecords)
