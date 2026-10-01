@@ -493,7 +493,7 @@ function normaliseTrack(
       plexUpdatedAt: timestampOrNull(item.updatedAt),
       playCount: integerOrNull(item.viewCount) ?? 0,
       lastPlayedAt: timestampOrNull(item.lastViewedAt),
-      rating: integerOrNull(item.userRating),
+      rating: ratingOrNull(item.userRating),
       artist: {
         plexRatingKey: String(item.grandparentRatingKey),
         name: item.grandparentTitle,
@@ -518,6 +518,10 @@ function normaliseTrack(
  */
 function serverLibraryUri(machineIdentifier: string, ratingKeys: string[]): string {
   return `server://${machineIdentifier}/com.plexapp.plugins.library/library/metadata/${ratingKeys.join(',')}`
+}
+
+function ratingOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 10 ? value : null
 }
 
 function integerOrNull(value: unknown): number | null {
