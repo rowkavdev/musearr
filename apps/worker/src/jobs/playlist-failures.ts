@@ -21,7 +21,8 @@ export function sanitisePlaylistFailure(error: unknown): SanitisedPlaylistFailur
     message.includes('required before') ||
     message.includes('no plex') ||
     message.includes('not configured') ||
-    message.includes('no longer in the library')
+    message.includes('no longer in the library') ||
+    message.includes('missing a root folder')
   ) {
     return { classification: 'configuration', summary: 'Playlist configuration needs attention.', retryable: false }
   }
