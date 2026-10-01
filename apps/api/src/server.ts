@@ -117,12 +117,6 @@ type ApiJobQueue = Pick<PgBoss, 'send'> & Partial<Pick<PgBoss, 'stop'>>
 const SESSION_COOKIE = 'musearr_session'
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
 
-let dummyHash: Promise<string> | undefined
-function dummyPasswordHash(): Promise<string> {
-  dummyHash ??= hashPassword(randomBytes(16).toString('hex'))
-  return dummyHash
-}
-
 function sendProblem(reply: FastifyReply, status: number, code: string, detail: string): FastifyReply {
   return reply.code(status).send({
     type: `https://musearr.local/problems/${code.toLowerCase()}`,
@@ -317,7 +311,12 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     }
   })
 
+  // Built once at startup so the first unknown-user login does not also pay for hashing.
+  let dummyHash: Promise<string> | undefined
+  const dummyPasswordHash = () => (dummyHash ??= hashPassword(randomBytes(16).toString('hex')))
+
   app.addHook('onReady', async () => {
+    await dummyPasswordHash()
     if (options.startJobQueue !== false && !jobQueue) {
       jobQueue = await startJobQueue(config.DATABASE_URL, (error) => app.log.error(error, 'Job queue error'))
     }
