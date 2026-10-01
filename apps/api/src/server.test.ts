@@ -438,6 +438,11 @@ describe('setup Plex PIN ownership (#82)', () => {
     const unknown = await app.inject({ method: 'GET', url: '/api/v1/setup/plex-pin/99999' });
     expect(unknown.statusCode).toBe(404);
     expect(fetchSpy).not.toHaveBeenCalled();
+    // Only plain decimal ids are valid; Number() forms like 1e2 or 0x10 are not.
+    for (const bad of ['1e2', '0x10', '%205', '042', '5.0', '99999999999999999999']) {
+      expect((await app.inject({ method: 'GET', url: `/api/v1/setup/plex-pin/${bad}` })).statusCode, bad).toBe(400);
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
     const started = await app.inject({ method: 'POST', url: '/api/v1/setup/plex-pin' });
     expect(started.statusCode).toBe(200);
     const cookieHeader = String(started.headers['set-cookie']).split(';')[0];

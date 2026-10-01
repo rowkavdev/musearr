@@ -548,8 +548,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     }
 
     const rawId = (request.params as { id?: unknown }).id
-    const id = typeof rawId === 'string' ? Number(rawId) : NaN
-    if (!Number.isInteger(id) || id <= 0) {
+    // Plain decimal digits only: Number() would also accept "1e2", "0x10" and " 5".
+    const id = typeof rawId === 'string' && /^[1-9][0-9]{0,15}$/.test(rawId) ? Number(rawId) : NaN
+    if (!Number.isSafeInteger(id)) {
       return sendProblem(reply, 400, 'INVALID_REQUEST', 'Provide a valid Plex sign-in id.')
     }
 
