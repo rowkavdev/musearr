@@ -218,3 +218,28 @@ it.each([-1, 11, '8.5', null])('drops invalid Plex rating %s without losing the 
   expect(page.items).toHaveLength(1);
   expect(page.items[0]?.rating).toBeNull();
 });
+
+describe('PlexClient malformed MediaContainer lists', () => {
+  const answer = (body: unknown) => vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response(JSON.stringify(body), { status: 200 })))
+  const client = () => new PlexClient('http://plex.test:32400', 'token')
+
+  it.each([
+    ['an object', { ratingKey: 1 }],
+    ['a string', 'x'],
+  ])('reports INVALID_RESPONSE when Metadata is %s', async (_name, metadata) => {
+    answer({ MediaContainer: { Metadata: metadata } })
+    for (const call of [() => client().libraryTracks('1', 0, 10), () => client().audioPlaylists(), () => client().playlistItems('1', 0, 10)]) {
+      await expect(call()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+    }
+  })
+
+  it('skips null and scalar rows but still counts them as scanned', async () => {
+    answer({ MediaContainer: { totalSize: 3, Metadata: [null, 5, { ratingKey: 9, addedAt: 1 }] } })
+    const page = await client().playlistItems('1', 0, 10)
+    expect(page.scanned).toBe(3)
+    expect(page.items.map((item) => item.plexTrackRatingKey)).toEqual(['9'])
+    expect(page.skipped).toBe(2)
+    await expect(client().libraryTracks('1', 0, 10)).resolves.toMatchObject({ scanned: 3 })
+    await expect(client().audioPlaylists()).resolves.toEqual([])
+  })
+})
