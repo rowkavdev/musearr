@@ -14,7 +14,7 @@ const MAX_TRACKED_KEYS = 5000
 export type LoginThrottle = {
   /** Counts an attempt. Returns seconds to wait when it is not allowed, else 0. */
   reserve(address: string, username: string): number
-  /** Clears the address and username pair after a correct password. */
+  /** After a correct password: clears the pair and gives back this attempt's address count. */
   recordSuccess(address: string, username: string): void
 }
 
@@ -47,6 +47,14 @@ class Counter {
 
   remove(key: string): void {
     this.entries.delete(key)
+  }
+
+  /** Gives back one counted attempt without touching the rest of the key's count. */
+  release(key: string): void {
+    const entry = this.live(key)
+    if (!entry) return
+    entry.count -= 1
+    if (entry.count <= 0) this.entries.delete(key)
   }
 
   private live(key: string): Entry | undefined {
@@ -98,6 +106,8 @@ export function createLoginThrottle(now: () => number = Date.now): LoginThrottle
     },
     recordSuccess(address, username) {
       pairs.remove(`${address}|${username}`)
+      // The attempt was counted up front; a correct password should not use up the address allowance.
+      addresses.release(address)
     },
   }
 }
