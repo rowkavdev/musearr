@@ -17,6 +17,7 @@ const plex = vi.hoisted(() => ({
   findAudioPlaylistByTitle: vi.fn(),
   createAudioPlaylist: vi.fn(),
   addPlaylistItems: vi.fn(async () => undefined),
+  playlistItems: vi.fn(async (): Promise<{ total: number; offset: number; scanned: number; items: Array<{ plexTrackRatingKey: string; addedAt: string | null }>; skipped: number }> => ({ total: 0, offset: 0, scanned: 0, items: [], skipped: 0 })),
 }))
 
 vi.mock('@musearr/db', () => db)
@@ -133,6 +134,26 @@ describe('publishPlaylistToPlex', () => {
     expect(plex.addPlaylistItems).toHaveBeenCalledWith('9001', 'machine-1', ['1003'])
     expect(db.linkManagedPlexPlaylist).not.toHaveBeenCalled()
     expect(outcome).toEqual({ created: false, added: 1, status: 'published' })
+  })
+
+  it('#97 does not re-add tracks already in the Plex playlist after a failed bookkeeping write', async () => {
+    db.getPlaylistGenerationJobContext.mockResolvedValue(context({ plexPlaylistRatingKey: '9001', status: 'publishing' }))
+    db.getPublishableGenerationItems.mockResolvedValue([
+      { id: 'item-1', plexRatingKey: '1001' },
+      { id: 'item-2', plexRatingKey: '1002' },
+    ])
+    plex.playlistItems.mockResolvedValueOnce({
+      total: 1,
+      offset: 0,
+      scanned: 1,
+      items: [{ plexTrackRatingKey: '1001', addedAt: null }],
+      skipped: 0,
+    })
+
+    await publishPlaylistToPlex(database, config, 'gen-1')
+
+    expect(plex.addPlaylistItems).toHaveBeenCalledWith('9001', 'machine-1', ['1002'])
+    expect(db.markGenerationItemsPublished).toHaveBeenCalledWith(database, ['item-1', 'item-2'])
   })
 
   it('makes no Plex writes when a re-publish has nothing new', async () => {
