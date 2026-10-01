@@ -64,7 +64,11 @@ export class MusicBrainzSimilarTrackProvider implements SimilarTrackProvider {
               releaseName = metadata.releaseName
             }
           } catch (error) {
-            this.onLookupError(error)
+            try {
+              this.onLookupError(error)
+            } catch {
+              // A broken callback must not cost the suggestions already collected.
+            }
             if (error instanceof MusicBrainzError && error.code === 'RATE_LIMITED') {
               lookups = this.maxLookups
             }
