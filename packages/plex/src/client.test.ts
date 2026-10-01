@@ -210,3 +210,17 @@ it.each([-1, 11, '8.5', null])('drops invalid Plex rating %s without losing the 
   expect(page.items).toHaveLength(1);
   expect(page.items[0]?.rating).toBeNull();
 });
+
+describe('PlexClient.createAudioPlaylist empty answers (#131)', () => {
+  it.each([
+    ['204 with no body', () => new Response(null, { status: 204 })],
+    ['200 with an empty body', () => new Response('', { status: 200 })],
+  ])('reports INVALID_RESPONSE for a %s', async (_name, makeResponse) => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => makeResponse()))
+    const error = await new PlexClient('http://plex.test:32400', 'token')
+      .createAudioPlaylist('machine', 'Mix', ['1'])
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(PlexConnectionError)
+    expect((error as PlexConnectionError).code).toBe('INVALID_RESPONSE')
+  })
+})
