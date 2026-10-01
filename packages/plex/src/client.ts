@@ -571,9 +571,9 @@ function integerOrNull(value: unknown): number | null {
 }
 
 function timestampOrNull(value: unknown): string | null {
-  return typeof value === 'number' && Number.isFinite(value)
-    ? new Date(value * 1_000).toISOString()
-    : null
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  const date = new Date(value * 1_000)
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null
 }
 
 
