@@ -503,18 +503,22 @@ export async function listPlexServersForToken(token: string): Promise<PlexAuthor
   }
   const servers: PlexAuthorizedServer[] = []
   for (const resource of payload) {
-    if (!isRecord(resource) || !resource.provides?.split(',').includes('server') || !resource.clientIdentifier || !resource.name) {
+    if (!isRecord(resource)) {
       continue
     }
-    const connections = resource.connections ?? []
+    const { provides, clientIdentifier, name } = resource
+    if (typeof provides !== 'string' || !provides.split(',').includes('server') || typeof clientIdentifier !== 'string' || !clientIdentifier || typeof name !== 'string' || !name) {
+      continue
+    }
+    const connections = Array.isArray(resource.connections) ? resource.connections.filter(isRecord) : []
     const preferred =
-      connections.find((connection) => connection.local && !connection.relay) ??
-      connections.find((connection) => !connection.relay) ??
+      connections.find((connection) => connection.local === true && connection.relay !== true) ??
+      connections.find((connection) => connection.relay !== true) ??
       connections[0]
-    if (!preferred?.uri) {
+    if (typeof preferred?.uri !== 'string' || !preferred.uri) {
       continue
     }
-    servers.push({ name: resource.name, machineIdentifier: resource.clientIdentifier, baseUrl: preferred.uri })
+    servers.push({ name, machineIdentifier: clientIdentifier, baseUrl: preferred.uri })
   }
   return servers
 }
@@ -571,7 +575,7 @@ function serverLibraryUri(machineIdentifier: string, ratingKeys: string[]): stri
   return `server://${machineIdentifier}/com.plexapp.plugins.library/library/metadata/${ratingKeys.join(',')}`
 }
 
-function isRecord(value: unknown): value is Record<string, any> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 

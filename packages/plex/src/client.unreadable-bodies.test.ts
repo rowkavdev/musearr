@@ -24,6 +24,16 @@ describe('plex.tv replies that are not the expected shape', () => {
     reply(JSON.stringify([null, { provides: 'server', name: 'Home', clientIdentifier: 'abc', connections: [{ uri: 'http://10.0.0.2:32400', local: true }] }]))
     await expect(listPlexServersForToken('tok')).resolves.toEqual([{ name: 'Home', machineIdentifier: 'abc', baseUrl: 'http://10.0.0.2:32400' }])
   })
+  it('listPlexServersForToken skips a server row with wrong-typed fields instead of throwing', async () => {
+    reply(JSON.stringify([
+      { provides: 5, name: 'A', clientIdentifier: 'a', connections: [{ uri: 'http://a' }] },
+      { provides: 'server', name: 'B', clientIdentifier: 'b', connections: 'nope' },
+      { provides: 'server', name: 'C', clientIdentifier: 'c', connections: [null, { uri: 7 }] },
+      { provides: 'server', name: 7, clientIdentifier: 'd', connections: [{ uri: 'http://d' }] },
+      { provides: 'client,server', name: 'Good', clientIdentifier: 'g', connections: [{ uri: 'https://relay', relay: true }, { uri: 'http://lan', local: true }] },
+    ]))
+    await expect(listPlexServersForToken('tok')).resolves.toEqual([{ name: 'Good', machineIdentifier: 'g', baseUrl: 'http://lan' }])
+  })
   it('createPlexPin and checkPlexPin still read normal replies', async () => {
     reply('{"id":5,"code":"ABCD","authToken":null}')
     await expect(createPlexPin()).resolves.toEqual({ id: 5, code: 'ABCD', authToken: null })
