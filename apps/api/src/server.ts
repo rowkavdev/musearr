@@ -103,6 +103,7 @@ type ServerOptions = {
 type ApiJobQueue = Pick<PgBoss, 'send'> & Partial<Pick<PgBoss, 'stop'>>
 
 const SESSION_COOKIE = 'musearr_session'
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
 
 function sendProblem(reply: FastifyReply, status: number, code: string, detail: string): FastifyReply {
   return reply.code(status).send({
@@ -138,10 +139,10 @@ function sessionCookieOptions(request: FastifyReply['request']) {
 }
 
 function setSession(reply: FastifyReply, user: { id: string; role: 'owner' | 'member' }): void {
-  const token = reply.server.jwt.sign({ sub: user.id, role: user.role })
+  const token = reply.server.jwt.sign({ sub: user.id, role: user.role }, { expiresIn: SESSION_MAX_AGE_SECONDS })
   reply.setCookie(SESSION_COOKIE, token, {
     ...sessionCookieOptions(reply.request),
-    maxAge: 60 * 60 * 24 * 30,
+    maxAge: SESSION_MAX_AGE_SECONDS,
   })
 }
 

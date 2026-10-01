@@ -1,7 +1,7 @@
 import { getConfig } from '@musearr/config'
 import type { Database } from '@musearr/db'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { encryptSecret } from '@musearr/core'
+import { encryptSecret, hashPassword } from '@musearr/core'
 import { PlexClient } from '@musearr/plex'
 import { buildServer } from './server.js'
 
@@ -460,3 +460,23 @@ describe('setup Plex PIN ownership (#82)', () => {
     dateNow.mockRestore();
   });
 });
+
+describe('session lifetime', () => {
+  it('issues a login token that expires with the 30 day cookie', async () => {
+    const passwordHash = await hashPassword('correct horse battery')
+    const database = (async () => [{ id: 'user-1', password_hash: passwordHash, role: 'owner' }]) as unknown as Database
+    const app = createServer({ database })
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      headers: { origin: 'https://musearr.test' },
+      payload: { username: 'owner', password: 'correct horse battery' },
+    })
+
+    expect(response.statusCode).toBe(204)
+    const token = String(response.headers['set-cookie']).split(';')[0]!.split('=')[1]!
+    const claims = app.jwt.decode<{ iat: number; exp?: number }>(token)
+    expect(claims?.exp).toBeDefined()
+    expect(claims!.exp! - claims!.iat).toBe(60 * 60 * 24 * 30)
+  })
+})
