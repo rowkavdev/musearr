@@ -107,8 +107,8 @@ type ServerOptions = {
 type SessionStore = {
   /** Current version for an active user; null when the user is missing or disabled. */
   version(userId: string): Promise<number | null>
-  /** Invalidates all tokens issued for the user so far. */
-  revoke(userId: string): Promise<void>
+  /** Invalidates tokens issued at expectedVersion. A no-op when the stored version has moved on. */
+  revoke(userId: string, expectedVersion: number): Promise<void>
 }
 
 type ApiJobQueue = Pick<PgBoss, 'send'> & Partial<Pick<PgBoss, 'stop'>>
@@ -236,7 +236,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const ownsDatabase = !options.database
   const sessions: SessionStore = options.sessions ?? {
     version: (userId) => getSessionVersion(database, userId),
-    revoke: (userId) => revokeUserSessions(database, userId),
+    revoke: (userId, expectedVersion) => revokeUserSessions(database, userId, expectedVersion),
   }
   // PIN status is a credential-bearing capability, owned by its creator's
   // browser. IDs alone are public sequential values, not authorization.
@@ -751,18 +751,20 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     // invalid token has nothing to revoke; the cookie is cleared either way.
     // Check the signature only. request.jwtVerify() also asks the database for the user's
     // session version, and an outage there would be read as "not signed in" and skip revocation.
-    let subject: string | null = null
+    let session: { sub: string; sv: number } | null = null
     const token = request.cookies[SESSION_COOKIE]
     if (token) {
       try {
-        subject = app.jwt.verify<{ sub: string }>(token).sub
+        const verified = app.jwt.verify<{ sub: string; sv?: number }>(token)
+        session = { sub: verified.sub, sv: verified.sv ?? 0 }
       } catch {
         // Missing or invalid tokens have nothing to revoke.
       }
     }
     // A storage failure must not look like successful logout while copied tokens
     // remain valid. Let the server return an error and keep the cookie for retry.
-    if (subject !== null) await sessions.revoke(subject)
+    // Conditional on the token's own version: a stale or revoked token cannot sign the user out again.
+    if (session !== null) await sessions.revoke(session.sub, session.sv)
     reply.clearCookie(SESSION_COOKIE, sessionCookieOptions(request))
     return reply.code(204).send()
   })

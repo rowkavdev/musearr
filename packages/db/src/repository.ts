@@ -2005,7 +2005,13 @@ export async function getSessionVersion(database: Database, userId: string): Pro
   return rows[0]?.session_version ?? null
 }
 
-/** Invalidates every session token issued for the user before this call. */
-export async function revokeUserSessions(database: Database, userId: string): Promise<void> {
-  await database`UPDATE users SET session_version = session_version + 1 WHERE id = ${userId}::uuid`
+/**
+ * Invalidates every session token issued for the user at the given version. Conditional on
+ * the stored version still matching, so a stale or already-revoked token cannot bump it again.
+ */
+export async function revokeUserSessions(database: Database, userId: string, expectedVersion: number): Promise<void> {
+  await database`
+    UPDATE users SET session_version = session_version + 1
+    WHERE id = ${userId}::uuid AND session_version = ${expectedVersion}
+  `
 }
