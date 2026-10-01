@@ -117,3 +117,30 @@ it('does not forward lidarr credentials to a redirect target (#75)', async () =>
     await Promise.all([new Promise<void>(resolve => source.close(() => resolve())), new Promise<void>(resolve => target.close(() => resolve()))])
   }
 })
+
+it('reads later Lidarr queue pages instead of hiding downloads after item 200', async () => {
+  const seen: string[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+    seen.push(input);
+    const page = Number(new URL(input).searchParams.get('page') ?? '1');
+    const count = page === 1 ? 200 : 1;
+    return Response.json({ totalRecords: 201, records: Array.from({ length: count }, (_, i) => ({ id: (page - 1) * 200 + i + 1, artistId: 1, albumId: 2, status: 'downloading' })) });
+  }));
+  const records = await new LidarrClient('http://lidarr.local', 'test-key').getQueue();
+  expect(records).toHaveLength(201);
+  expect(records.at(-1)?.id).toBe(201);
+  expect(seen).toHaveLength(2);
+});
+
+it('fails explicitly instead of returning a partial queue after the paging cap', async () => {
+  const fetcher = vi.fn(async () => Response.json({ totalRecords: 10001, records: Array.from({ length: 200 }, (_, i) => ({ id: i + 1 })) }));
+  vi.stubGlobal('fetch', fetcher);
+  await expect(new LidarrClient('http://lidarr.local', 'test-key').getQueue()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  expect(fetcher).toHaveBeenCalledTimes(50);
+});
+it('keeps the legacy array queue response and stops at an empty page', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json([{ id: 1, status: 'queued' }])));
+  expect(await new LidarrClient('http://lidarr.local', 'test-key').getQueue()).toHaveLength(1);
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ records: [], totalRecords: 100 })));
+  expect(await new LidarrClient('http://lidarr.local', 'test-key').getQueue()).toEqual([]);
+});

@@ -247,11 +247,18 @@ export class LidarrClient {
   }
 
   async getQueue(): Promise<LidarrQueueRecord[]> {
-    const payload = await this.request<UnknownRecord>(
-      'GET',
-      '/api/v1/queue?pageSize=200&includeArtist=false&includeAlbum=false',
-    )
-    const records = Array.isArray(payload.records) ? (payload.records as UnknownRecord[]) : asArray(payload)
+    const records: UnknownRecord[] = []
+    for (let page = 1; page <= 50; page++) {
+      const payload = await this.request<UnknownRecord>(
+        'GET',
+        `/api/v1/queue?page=${page}&pageSize=200&includeArtist=false&includeAlbum=false`,
+      )
+      const batch = Array.isArray(payload.records) ? (payload.records as UnknownRecord[]) : asArray(payload)
+      records.push(...batch)
+      const total = integerOrNull(payload.totalRecords)
+      if (batch.length === 0 || (total !== null ? records.length >= total : batch.length < 200)) break
+      if (page === 50) throw new LidarrConnectionError('INVALID_RESPONSE', 'Lidarr queue exceeds the 10000-record paging limit.')
+    }
     return records.flatMap((raw) => {
       const id = integerOrNull(raw.id)
       if (id === null) {
