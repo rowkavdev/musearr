@@ -71,6 +71,8 @@ import {
   startJobQueue,
   upsertLidarrConnection,
   type Database,
+  getSessionVersion,
+  revokeUserSessions,
 } from '@musearr/db'
 import { generatePlaylistProposalDraft } from '@musearr/intelligence'
 import {
@@ -88,8 +90,8 @@ import type { PgBoss } from 'pg-boss'
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
-    payload: { sub: string; role: 'owner' | 'member' }
-    user: { sub: string; role: 'owner' | 'member' }
+    payload: { sub: string; role: 'owner' | 'member'; sv?: number }
+    user: { sub: string; role: 'owner' | 'member'; sv?: number }
   }
 }
 
@@ -98,6 +100,15 @@ type ServerOptions = {
   database?: Database
   startJobQueue?: boolean
   jobQueue?: Pick<PgBoss, 'send'>
+  /** Session revocation store. Defaults to the users table. */
+  sessions?: SessionStore
+}
+
+type SessionStore = {
+  /** Current version for an active user; null when the user is missing or disabled. */
+  version(userId: string): Promise<number | null>
+  /** Invalidates all tokens issued for the user so far. */
+  revoke(userId: string): Promise<void>
 }
 
 type ApiJobQueue = Pick<PgBoss, 'send'> & Partial<Pick<PgBoss, 'stop'>>
@@ -138,8 +149,8 @@ function sessionCookieOptions(request: FastifyReply['request']) {
   }
 }
 
-function setSession(reply: FastifyReply, user: { id: string; role: 'owner' | 'member' }): void {
-  const token = reply.server.jwt.sign({ sub: user.id, role: user.role }, { expiresIn: SESSION_MAX_AGE_SECONDS })
+function setSession(reply: FastifyReply, user: { id: string; role: 'owner' | 'member' }, sessionVersion = 0): void {
+  const token = reply.server.jwt.sign({ sub: user.id, role: user.role, sv: sessionVersion }, { expiresIn: SESSION_MAX_AGE_SECONDS })
   reply.setCookie(SESSION_COOKIE, token, {
     ...sessionCookieOptions(reply.request),
     maxAge: SESSION_MAX_AGE_SECONDS,
@@ -223,6 +234,10 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const config = options.config ?? getConfig()
   const database = options.database ?? createDatabase(config.DATABASE_URL)
   const ownsDatabase = !options.database
+  const sessions: SessionStore = options.sessions ?? {
+    version: (userId) => getSessionVersion(database, userId),
+    revoke: (userId) => revokeUserSessions(database, userId),
+  }
   // PIN status is a credential-bearing capability, owned by its creator's
   // browser. IDs alone are public sequential values, not authorization.
   const setupPins = new Map<number, { owner: string; expiresAt: number }>()
@@ -271,6 +286,12 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     // Sessions issued before tokens carried an exp have no expiry claim. Age them out from iat
     // so they stop working when their 30 day cookie would have lapsed anyway.
     verify: { maxAge: SESSION_MAX_AGE_SECONDS },
+    // Every request.jwtVerify() runs this, so logout, disabling a user and deletion revoke
+    // existing tokens. Tokens issued before versions existed have no sv and count as 0.
+    trusted: async (_request, token) => {
+      const current = await sessions.version(token.sub)
+      return current !== null && (token.sv ?? 0) === current
+    },
   })
   app.register(swagger, {
     openapi: {
@@ -701,8 +722,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       return sendProblem(reply, 400, 'INVALID_REQUEST', 'Enter your local owner credentials.')
     }
 
-    const users = await database<Array<{ id: string; password_hash: string; role: 'owner' | 'member' }>>`
-      SELECT id, password_hash, role FROM users
+    const users = await database<Array<{ id: string; password_hash: string; role: 'owner' | 'member'; session_version: number }>>`
+      SELECT id, password_hash, role, session_version FROM users
       WHERE username = ${body.username.trim()}
       AND disabled_at IS NULL
       LIMIT 1
@@ -712,7 +733,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       return sendProblem(reply, 401, 'INVALID_CREDENTIALS', 'The username or password is not correct.')
     }
 
-    setSession(reply, { id: user.id, role: user.role })
+    setSession(reply, { id: user.id, role: user.role }, user.session_version)
     return reply.code(204).send()
   })
 
@@ -726,6 +747,14 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   })
 
   app.post('/api/v1/auth/logout', async (request, reply) => {
+    // Revoke before clearing the cookie so a copied token stops working. A missing or
+    // invalid token has nothing to revoke; the cookie is cleared either way.
+    try {
+      await request.jwtVerify()
+      await sessions.revoke(request.user.sub)
+    } catch {
+      // not signed in
+    }
     reply.clearCookie(SESSION_COOKIE, sessionCookieOptions(request))
     return reply.code(204).send()
   })

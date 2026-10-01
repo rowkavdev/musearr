@@ -15,6 +15,7 @@ function createServer(
     jobQueue?: { send: ReturnType<typeof vi.fn> }
     webhookSecret?: string
     encryptionKey?: string
+    sessions?: { version(userId: string): Promise<number | null>; revoke(userId: string): Promise<void> }
   } = {},
 ) {
   const app = buildServer({
@@ -29,6 +30,8 @@ function createServer(
     }),
     database: options.database ?? ({} as Database),
     startJobQueue: false,
+    // Tests sign tokens for made-up users, so the default store accepts every user at version 0.
+    sessions: options.sessions ?? { version: async () => 0, revoke: async () => undefined },
     ...(options.jobQueue ? { jobQueue: options.jobQueue as unknown as NonNullable<NonNullable<Parameters<typeof buildServer>[0]>['jobQueue']> } : {}),
   })
   apps.push(app)
@@ -493,5 +496,60 @@ describe('session lifetime', () => {
     const fresh = await app.inject({ method: 'GET', url: '/api/v1/auth/me', headers: { cookie: `musearr_session=${recent}` } })
     expect(stale.statusCode).toBe(401)
     expect(fresh.statusCode).not.toBe(401)
+  })
+})
+
+describe('session revocation (#96)', () => {
+  function memorySessions(initial: Record<string, number | null>) {
+    const versions = new Map(Object.entries(initial))
+    return {
+      versions,
+      store: {
+        version: async (id: string) => versions.get(id) ?? null,
+        revoke: async (id: string) => { versions.set(id, (versions.get(id) ?? 0) + 1) },
+      },
+    }
+  }
+  const me = (app: ReturnType<typeof createServer>, token: string) =>
+    app.inject({ method: 'GET', url: '/api/v1/auth/me', headers: { cookie: `musearr_session=${token}` } })
+
+  it('stops a copied token working after logout', async () => {
+    const { store } = memorySessions({ 'owner-id': 0 })
+    const app = createServer({ sessions: store })
+    await app.ready()
+    const token = app.jwt.sign({ sub: 'owner-id', role: 'owner', sv: 0 })
+    expect((await me(app, token)).statusCode).toBe(200)
+    const logout = await app.inject({ method: 'POST', url: '/api/v1/auth/logout', headers: { cookie: `musearr_session=${token}`, origin: 'https://musearr.test' } })
+    expect(logout.statusCode).toBe(204)
+    expect((await me(app, token)).statusCode).toBe(401)
+  })
+
+  it('treats tokens issued before versions existed as version 0 and revokes them too', async () => {
+    const { store } = memorySessions({ 'owner-id': 0 })
+    const app = createServer({ sessions: store })
+    await app.ready()
+    const legacy = app.jwt.sign({ sub: 'owner-id', role: 'owner' })
+    expect((await me(app, legacy)).statusCode).toBe(200)
+    await store.revoke('owner-id')
+    expect((await me(app, legacy)).statusCode).toBe(401)
+  })
+
+  it('rejects tokens for a disabled or deleted user and tokens with a stale version', async () => {
+    const { store } = memorySessions({ 'owner-id': 2, 'gone-id': null })
+    const app = createServer({ sessions: store })
+    await app.ready()
+    expect((await me(app, app.jwt.sign({ sub: 'gone-id', role: 'member', sv: 0 }))).statusCode).toBe(401)
+    expect((await me(app, app.jwt.sign({ sub: 'owner-id', role: 'owner', sv: 1 }))).statusCode).toBe(401)
+    expect((await me(app, app.jwt.sign({ sub: 'owner-id', role: 'owner', sv: 2 }))).statusCode).toBe(200)
+  })
+
+  it('logout without a valid session still clears the cookie and revokes nothing', async () => {
+    const revoke = vi.fn(async () => undefined)
+    const app = createServer({ sessions: { version: async () => 0, revoke } })
+    await app.ready()
+    const response = await app.inject({ method: 'POST', url: '/api/v1/auth/logout', headers: { origin: 'https://musearr.test' } })
+    expect(response.statusCode).toBe(204)
+    expect(String(response.headers['set-cookie'])).toContain('musearr_session=;')
+    expect(revoke).not.toHaveBeenCalled()
   })
 })
