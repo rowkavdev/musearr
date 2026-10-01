@@ -169,16 +169,21 @@ export function normalisePlexBaseUrl(rawUrl: string): string {
 
 // Link-local ranges and cloud metadata names are never a Plex server, and they
 // are the usual SSRF targets (#83). LAN, Docker host and loopback stay allowed.
-function isLinkLocalHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
+function isLinkLocalHost(rawHost: string): boolean {
+  let host = rawHost.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
+  // WHATWG URL rewrites ::ffff:a.b.c.d to two hex groups, e.g. ::ffff:a9fe:a9fe.
+  // Decode it back so the IPv4 checks below apply to mapped addresses too.
+  const mapped = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
+  if (mapped) {
+    const high = parseInt(mapped[1] as string, 16)
+    const low = parseInt(mapped[2] as string, 16)
+    host = `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`
+  }
   if (host === 'metadata.google.internal' || host === 'metadata.goog') return true
   // Alibaba Cloud and AWS IPv6 metadata endpoints.
   if (host === '100.100.100.200' || host === 'fd00:ec2::254') return true
   if (/^169\.254\.\d{1,3}\.\d{1,3}$/.test(host)) return true
-  if (/^fe[89ab][0-9a-f]:/.test(host)) return true
-  // WHATWG URL rewrites ::ffff:a.b.c.d to hex groups, e.g. ::ffff:a9fe:a9fe.
-  const mapped = host.match(/^::ffff:([0-9a-f]{1,4}):[0-9a-f]{1,4}$/)
-  return mapped !== null && parseInt(mapped[1] as string, 16) >> 8 === 169 && (parseInt(mapped[1] as string, 16) & 255) === 254
+  return /^fe[89ab][0-9a-f]:/.test(host)
 }
 
 export class PlexClient {
