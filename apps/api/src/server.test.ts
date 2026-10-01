@@ -583,6 +583,16 @@ describe('session revocation (#96)', () => {
     expect((await me(app, token)).statusCode).toBe(200)
   })
 
+  it('still revokes on logout when the version lookup is failing', async () => {
+    const revoke = vi.fn(async () => undefined)
+    const app = createServer({ sessions: { version: async () => { throw new Error('database unavailable') }, revoke } })
+    await app.ready()
+    const token = app.jwt.sign({ sub: 'owner-id', role: 'owner', sv: 0 })
+    const response = await app.inject({ method: 'POST', url: '/api/v1/auth/logout', headers: { cookie: `musearr_session=${token}`, origin: 'https://musearr.test' } })
+    expect(response.statusCode).toBe(204)
+    expect(revoke).toHaveBeenCalledWith('owner-id')
+  })
+
   it('logout without a valid session still clears the cookie and revokes nothing', async () => {
     const revoke = vi.fn(async () => undefined)
     const app = createServer({ sessions: { version: async () => 0, revoke } })
