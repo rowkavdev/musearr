@@ -186,3 +186,12 @@ it('preserves fractional Plex user ratings during library import', async () => {
   const page = await new PlexClient('http://plex.local', 'test-token').libraryTracks('4', 0, 200);
   expect(page.items[0]?.rating).toBe(8.5);
 });
+
+it.each([-1, 11, '8.5', null])('drops invalid Plex rating %s without losing the track', async (userRating) => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ MediaContainer: { Metadata: [{
+    ratingKey: 1, title: 'Track', parentRatingKey: 2, parentTitle: 'Album', grandparentRatingKey: 3, grandparentTitle: 'Artist', userRating,
+  }] } })));
+  const page = await new PlexClient('http://plex.local', 'test-token').libraryTracks('4', 0, 200);
+  expect(page.items).toHaveLength(1);
+  expect(page.items[0]?.rating).toBeNull();
+});
