@@ -24,8 +24,8 @@ describe('checkPinStatus', () => {
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
 
   it('returns the parsed body on success', async () => {
-    const result = await checkPinStatus(async () => json({ authToken: 'x' }), '/pin/1', readIssue)
-    expect(result).toEqual({ ok: true, value: { authToken: 'x' } })
+    const result = await checkPinStatus(async () => json({ authToken: 'x', servers: [] }), '/pin/1', readIssue)
+    expect(result).toEqual({ ok: true, value: { authToken: 'x', servers: [] } })
   })
 
   it('counts a 200 with an invalid body as a failed check', async () => {
@@ -43,5 +43,27 @@ describe('checkPinStatus', () => {
       new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted'))))
     const result = await checkPinStatus(hung, '/pin/1', readIssue, 20)
     expect(result).toEqual({ ok: false, status: null, message: null })
+  })
+
+  it.each([
+    ['null', 'null'],
+    ['a string', '"ok"'],
+    ['a missing servers list', '{"authToken":null}'],
+    ['a numeric authToken', '{"authToken":5,"servers":[]}'],
+    ['a malformed server record', '{"authToken":null,"servers":[{"name":1}]}'],
+  ])('counts %s as a failed check, not a good one', async (_label, body) => {
+    const result = await checkPinStatus(async () => new Response(body, { status: 200 }), '/pin/1', readIssue)
+    expect(result.ok).toBe(false)
+  })
+
+  it('accepts a pending sign-in and a signed-in reply with servers', async () => {
+    const pending = await checkPinStatus(async () => json({ authToken: null, servers: [] }), '/pin/1', readIssue)
+    const done = await checkPinStatus(
+      async () => json({ authToken: 't', servers: [{ name: 'Plex', machineIdentifier: 'm', baseUrl: 'http://plex:32400' }] }),
+      '/pin/1',
+      readIssue,
+    )
+    expect(pending.ok).toBe(true)
+    expect(done.ok).toBe(true)
   })
 })
