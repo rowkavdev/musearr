@@ -126,6 +126,9 @@ export class MusicBrainzClient {
     const seen = new Set<string>([recordingMbid]);
     const similar: SimilarRecording[] = [];
     for (const row of rows) {
+      if (row === null || typeof row !== "object") {
+        continue;
+      }
       const recordingMbidValue =
         optionalString(row.recording_mbid) ?? optionalString(row.mbid);
       if (!recordingMbidValue || seen.has(recordingMbidValue)) {
@@ -204,7 +207,11 @@ export class MusicBrainzClient {
           );
         }
         try {
-          return JSON.parse(await readBoundedResponse(response)) as T;
+          const parsed: unknown = JSON.parse(await readBoundedResponse(response));
+          if (parsed === null || typeof parsed !== "object") {
+            throw new Error("not an object");
+          }
+          return parsed as T;
         } catch {
           throw new MusicBrainzError(
             "INVALID_RESPONSE",
