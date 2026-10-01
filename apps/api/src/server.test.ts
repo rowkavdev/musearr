@@ -15,7 +15,7 @@ function createServer(
     jobQueue?: { send: ReturnType<typeof vi.fn> }
     webhookSecret?: string
     encryptionKey?: string
-    sessions?: { version(userId: string): Promise<number | null>; revoke(userId: string): Promise<void> }
+    sessions?: { version(userId: string): Promise<number | null>; revoke(userId: string, expectedVersion: number): Promise<void> }
   } = {},
 ) {
   const app = buildServer({
@@ -534,7 +534,7 @@ describe('session revocation (#96)', () => {
       versions,
       store: {
         version: async (id: string) => versions.get(id) ?? null,
-        revoke: async (id: string) => { versions.set(id, (versions.get(id) ?? 0) + 1) },
+        revoke: async (id: string, expected: number) => { if (versions.get(id) === expected) versions.set(id, expected + 1) },
       },
     }
   }
@@ -558,7 +558,7 @@ describe('session revocation (#96)', () => {
     await app.ready()
     const legacy = app.jwt.sign({ sub: 'owner-id', role: 'owner' })
     expect((await me(app, legacy)).statusCode).toBe(200)
-    await store.revoke('owner-id')
+    await store.revoke('owner-id', 0)
     expect((await me(app, legacy)).statusCode).toBe(401)
   })
 
@@ -579,7 +579,7 @@ describe('session revocation (#96)', () => {
     const response = await app.inject({ method: 'POST', url: '/api/v1/auth/logout', headers: { cookie: `musearr_session=${token}`, origin: 'https://musearr.test' } })
     expect(response.statusCode).toBe(500)
     expect(response.headers['set-cookie']).toBeUndefined()
-    expect(revoke).toHaveBeenCalledWith('owner-id')
+    expect(revoke).toHaveBeenCalledWith('owner-id', 0)
     expect((await me(app, token)).statusCode).toBe(200)
   })
 
@@ -590,7 +590,22 @@ describe('session revocation (#96)', () => {
     const token = app.jwt.sign({ sub: 'owner-id', role: 'owner', sv: 0 })
     const response = await app.inject({ method: 'POST', url: '/api/v1/auth/logout', headers: { cookie: `musearr_session=${token}`, origin: 'https://musearr.test' } })
     expect(response.statusCode).toBe(204)
-    expect(revoke).toHaveBeenCalledWith('owner-id')
+    expect(revoke).toHaveBeenCalledWith('owner-id', 0)
+  })
+
+  it('a stale token cannot bump the version again by calling logout', async () => {
+    const { store, versions } = memorySessions({ 'owner-id': 5 })
+    const revoke = vi.fn(store.revoke)
+    const app = createServer({ sessions: { ...store, revoke } })
+    await app.ready()
+    const stale = app.jwt.sign({ sub: 'owner-id', role: 'owner', sv: 0 })
+    const current = app.jwt.sign({ sub: 'owner-id', role: 'owner', sv: 5 })
+    const response = await app.inject({ method: 'POST', url: '/api/v1/auth/logout', headers: { cookie: `musearr_session=${stale}`, origin: 'https://musearr.test' } })
+    expect(response.statusCode).toBe(204)
+    // The token's own version travels with the revoke, so the store can refuse a stale one.
+    expect(revoke).toHaveBeenCalledWith('owner-id', 0)
+    expect(versions.get('owner-id')).toBe(5)
+    expect((await me(app, current)).statusCode).toBe(200)
   })
 
   it('logout without a valid session still clears the cookie and revokes nothing', async () => {
