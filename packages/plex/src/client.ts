@@ -282,7 +282,7 @@ export class PlexClient {
       `/playlists?type=audio&smart=0&title=${encodeURIComponent(title)}&uri=${encodeURIComponent(uri)}`,
       { method: 'POST' },
     )
-    const ratingKey = payload.MediaContainer?.Metadata?.[0]?.ratingKey
+    const ratingKey = payload?.MediaContainer?.Metadata?.[0]?.ratingKey
     if (ratingKey === undefined) {
       throw new PlexConnectionError('INVALID_RESPONSE', 'Plex did not return the created playlist.')
     }
