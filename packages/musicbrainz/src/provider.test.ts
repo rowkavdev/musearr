@@ -60,4 +60,37 @@ describe('MusicBrainzSimilarTrackProvider', () => {
     })
     await expect(provider.findSimilar(seed, 5)).resolves.toEqual([])
   })
+
+  function neighbourFetch(lookup: (url: string) => Response) {
+    return vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.includes('/recording?query=')) return jsonResponse({ recordings: [{ id: 'seed-mbid', score: 99 }] })
+      if (url.includes('/similar-recordings/json')) {
+        return jsonResponse([
+          { recording_mbid: 'n1', recording_name: 'Vapour Trail', artist_credit_name: 'Ride' },
+          { recording_mbid: 'n2' },
+          { recording_mbid: 'n3', recording_name: 'Pearl', artist_credit_name: 'Chapterhouse' },
+          { recording_mbid: 'n4' },
+        ])
+      }
+      return lookup(url)
+    })
+  }
+
+  it('keeps the other suggestions when one metadata lookup fails', async () => {
+    const fetchImpl = neighbourFetch((url) =>
+      url.includes('/recording/n2') ? new Response('gone', { status: 404 }) : jsonResponse({ title: 'Four', 'artist-credit': [{ name: 'Band' }] }),
+    )
+    const provider = new MusicBrainzSimilarTrackProvider({ contact: 'ops@example.com', minRequestIntervalMs: 0, fetchImpl: fetchImpl as unknown as typeof fetch })
+    const suggestions = await provider.findSimilar(seed, 5)
+    expect(suggestions.map((s) => s.trackTitle)).toEqual(['Vapour Trail', 'Pearl', 'Four'])
+  })
+
+  it('stops looking things up after a rate limit but still returns what it has', async () => {
+    const fetchImpl = neighbourFetch(() => new Response('slow down', { status: 503 }))
+    const provider = new MusicBrainzSimilarTrackProvider({ contact: 'ops@example.com', minRequestIntervalMs: 0, fetchImpl: fetchImpl as unknown as typeof fetch })
+    const suggestions = await provider.findSimilar(seed, 5)
+    expect(suggestions.map((s) => s.trackTitle)).toEqual(['Vapour Trail', 'Pearl'])
+    expect(fetchImpl.mock.calls.filter(([url]) => String(url).includes('/recording/n')).length).toBe(1)
+  })
 })

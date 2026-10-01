@@ -1,5 +1,5 @@
 import type { ExternalTrackSuggestion, SimilarSeed, SimilarTrackProvider } from '@musearr/intelligence'
-import { MusicBrainzClient, type MusicBrainzClientOptions } from './client.js'
+import { MusicBrainzClient, MusicBrainzError, type MusicBrainzClientOptions } from './client.js'
 
 export type MusicBrainzProviderOptions = MusicBrainzClientOptions & {
   /** Cap on MusicBrainz recording look-ups per generation (rate-limit budget). */
@@ -44,11 +44,20 @@ export class MusicBrainzSimilarTrackProvider implements SimilarTrackProvider {
 
         if ((!artistName || !trackTitle) && lookups < this.maxLookups) {
           lookups += 1
-          const metadata = await this.client.lookupRecording(neighbour.recordingMbid)
-          if (metadata) {
-            artistName = metadata.artistName
-            trackTitle = metadata.title
-            releaseName = metadata.releaseName
+          // One bad neighbour (a deleted recording, a timeout) must not throw
+          // away the suggestions already collected. If MusicBrainz is asking
+          // us to slow down, stop looking things up and use what has metadata.
+          try {
+            const metadata = await this.client.lookupRecording(neighbour.recordingMbid)
+            if (metadata) {
+              artistName = metadata.artistName
+              trackTitle = metadata.title
+              releaseName = metadata.releaseName
+            }
+          } catch (error) {
+            if (error instanceof MusicBrainzError && error.code === 'RATE_LIMITED') {
+              lookups = this.maxLookups
+            }
           }
         }
 
