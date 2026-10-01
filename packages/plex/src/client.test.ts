@@ -178,3 +178,11 @@ it('does not forward plex credentials to a redirect target (#73)', async () => {
     await Promise.all([new Promise<void>(resolve => source.close(() => resolve())), new Promise<void>(resolve => target.close(() => resolve()))])
   }
 })
+
+it('preserves fractional Plex user ratings during library import', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ MediaContainer: { Metadata: [{
+    ratingKey: 1, title: 'Track', parentRatingKey: 2, parentTitle: 'Album', grandparentRatingKey: 3, grandparentTitle: 'Artist', userRating: 8.5,
+  }] } })));
+  const page = await new PlexClient('http://plex.local', 'test-token').libraryTracks('4', 0, 200);
+  expect(page.items[0]?.rating).toBe(8.5);
+});
