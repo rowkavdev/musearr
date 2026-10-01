@@ -2,6 +2,14 @@ import { randomBytes } from 'node:crypto'
 import { encryptSecret } from '@musearr/core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+type PlaylistItemPage = {
+  total: number
+  offset: number
+  scanned: number
+  items: { plexTrackRatingKey: string; addedAt: string | null }[]
+  skipped: number
+}
+
 const db = vi.hoisted(() => ({
   getGenerationItemStateCounts: vi.fn(),
   getLibrarySyncSources: vi.fn(),
@@ -17,6 +25,7 @@ const plex = vi.hoisted(() => ({
   findAudioPlaylistByTitle: vi.fn(),
   createAudioPlaylist: vi.fn(),
   addPlaylistItems: vi.fn(async () => undefined),
+  playlistItems: vi.fn(async (): Promise<PlaylistItemPage> => ({ total: 0, offset: 0, scanned: 0, items: [], skipped: 0 })),
 }))
 
 vi.mock('@musearr/db', () => db)
@@ -133,6 +142,43 @@ describe('publishPlaylistToPlex', () => {
     expect(plex.addPlaylistItems).toHaveBeenCalledWith('9001', 'machine-1', ['1003'])
     expect(db.linkManagedPlexPlaylist).not.toHaveBeenCalled()
     expect(outcome).toEqual({ created: false, added: 1, status: 'published' })
+  })
+
+  it('skips tracks already in the Plex playlist so a retry after a failed bookkeeping write adds no duplicates', async () => {
+    db.getPlaylistGenerationJobContext.mockResolvedValue(context({ plexPlaylistRatingKey: '9001', status: 'publishing' }))
+    db.getPublishableGenerationItems.mockResolvedValue([
+      { id: 'item-1', plexRatingKey: '1001' },
+      { id: 'item-2', plexRatingKey: '1002' },
+    ])
+    plex.playlistItems.mockResolvedValueOnce({
+      total: 1,
+      offset: 0,
+      scanned: 1,
+      items: [{ plexTrackRatingKey: '1001', addedAt: null }],
+      skipped: 0,
+    })
+
+    await publishPlaylistToPlex(database, config, 'gen-1')
+
+    expect(plex.addPlaylistItems).toHaveBeenCalledWith('9001', 'machine-1', ['1002'])
+    expect(db.markGenerationItemsPublished).toHaveBeenCalledWith(database, ['item-1', 'item-2'])
+  })
+
+  it('adds nothing to Plex when every track is already in the playlist but still marks them published', async () => {
+    db.getPlaylistGenerationJobContext.mockResolvedValue(context({ plexPlaylistRatingKey: '9001', status: 'publishing' }))
+    db.getPublishableGenerationItems.mockResolvedValue([{ id: 'item-1', plexRatingKey: '1001' }])
+    plex.playlistItems.mockResolvedValueOnce({
+      total: 1,
+      offset: 0,
+      scanned: 1,
+      items: [{ plexTrackRatingKey: '1001', addedAt: null }],
+      skipped: 0,
+    })
+
+    await publishPlaylistToPlex(database, config, 'gen-1')
+
+    expect(plex.addPlaylistItems).not.toHaveBeenCalled()
+    expect(db.markGenerationItemsPublished).toHaveBeenCalledWith(database, ['item-1'])
   })
 
   it('makes no Plex writes when a re-publish has nothing new', async () => {
