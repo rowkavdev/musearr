@@ -117,6 +117,12 @@ type ApiJobQueue = Pick<PgBoss, 'send'> & Partial<Pick<PgBoss, 'stop'>>
 const SESSION_COOKIE = 'musearr_session'
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
 
+let dummyHash: Promise<string> | undefined
+function dummyPasswordHash(): Promise<string> {
+  dummyHash ??= hashPassword(randomBytes(16).toString('hex'))
+  return dummyHash
+}
+
 function sendProblem(reply: FastifyReply, status: number, code: string, detail: string): FastifyReply {
   return reply.code(status).send({
     type: `https://musearr.local/problems/${code.toLowerCase()}`,
@@ -744,7 +750,10 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       LIMIT 1
     `
     const user = users[0]
-    if (!user || !(await verifyPassword(body.password, user.password_hash))) {
+    // Check against a dummy hash when there is no such user, so both cases cost one scrypt run.
+    const passwordHash = user?.password_hash ?? (await dummyPasswordHash())
+    const passwordOk = await verifyPassword(body.password, passwordHash)
+    if (!user || !passwordOk) {
       return sendProblem(reply, 401, 'INVALID_CREDENTIALS', 'The username or password is not correct.')
     }
 
