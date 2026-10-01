@@ -14,6 +14,8 @@ const lidarr = vi.hoisted(() => ({
   addArtist: vi.fn(),
   getArtists: vi.fn(),
   getAlbums: vi.fn(),
+  setAlbumsMonitored: vi.fn(),
+  searchAlbums: vi.fn(),
 }))
 vi.mock('@musearr/db', () => db)
 vi.mock('@musearr/lidarr', () => ({ LidarrClient: vi.fn(function LidarrClient() { return lidarr }), LidarrConnectionError: class LidarrConnectionError extends Error { constructor(public code: string, message = code) { super(message) } } }))
@@ -83,3 +85,21 @@ describe('requestPlaylistAcquisitions transient errors', () => {
     expect(db.updateGenerationItemAcquisition).toHaveBeenCalledWith(database, 'item-1', { state: 'unavailable' })
   })
 })
+
+it('does not search an arbitrary album when exact titles are ambiguous', async () => {
+  db.getGenerationItemsByState.mockResolvedValue([{ id: 'item-1', artistName: 'Nirvana', albumTitle: 'Live' }]);
+  lidarr.getArtists.mockResolvedValue([{ id: 42, artistName: 'Nirvana', foreignArtistId: 'one' }]);
+  lidarr.getAlbums.mockResolvedValue([{ id: 101, title: 'Live' }, { id: 102, title: ' LIVE ' }]);
+  await requestPlaylistAcquisitions(database, config, 'gen-1');
+  expect(lidarr.setAlbumsMonitored).not.toHaveBeenCalled();
+  expect(lidarr.searchAlbums).not.toHaveBeenCalled();
+  expect(db.updateGenerationItemAcquisition).toHaveBeenCalledWith(database, 'item-1', expect.objectContaining({ lidarrAlbumId: null }));
+});
+it('searches the single exact album while ignoring unrelated titles', async () => {
+  db.getGenerationItemsByState.mockResolvedValue([{ id: 'item-1', artistName: 'Nirvana', albumTitle: 'Live' }]);
+  lidarr.getArtists.mockResolvedValue([{ id: 42, artistName: 'Nirvana', foreignArtistId: 'one' }]);
+  lidarr.getAlbums.mockResolvedValue([{ id: 101, title: 'Other' }, { id: 102, title: ' LIVE ' }]);
+  await requestPlaylistAcquisitions(database, config, 'gen-1');
+  expect(lidarr.setAlbumsMonitored).toHaveBeenCalledWith([102], true);
+  expect(lidarr.searchAlbums).toHaveBeenCalledWith([102]);
+});

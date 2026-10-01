@@ -143,7 +143,9 @@ async function ensureArtist(
 async function findAlbumId(client: LidarrClient, artistId: number, albumTitle: string): Promise<number | null> {
   const target = albumTitle.trim().toLowerCase()
   const albums = await client.getAlbums(artistId)
-  return albums.find((album) => album.title.trim().toLowerCase() === target)?.id ?? null
+  const matches = albums.filter((album) => album.title.trim().toLowerCase() === target)
+  // Title is not album identity: distinct releases can have the same title.
+  return matches.length === 1 ? matches[0]!.id : null
 }
 
 async function refreshGenerationStatus(database: Database, generationId: string): Promise<void> {
