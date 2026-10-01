@@ -3,6 +3,7 @@ import { decryptSecret } from '@musearr/core'
 import {
   getGenerationItemStateCounts,
   getLibrarySyncSources,
+  getOrphanedPlexPlaylistKey,
   getPlaylistGenerationJobContext,
   getPublishableGenerationItems,
   linkManagedPlexPlaylist,
@@ -70,6 +71,23 @@ export async function publishPlaylistToPlex(
   let created = false
 
   try {
+    if (!plexPlaylistRatingKey && ratingKeys.length > 0) {
+      // A failed first publish may have created the playlist in Plex without
+      // linking it. Adopt that playlist so a retry does not create a second.
+      const orphanKey = await getOrphanedPlexPlaylistKey(database, generationId)
+      const orphan = orphanKey
+        ? (await client.audioPlaylists()).find((playlist) => playlist.plexRatingKey === orphanKey)
+        : undefined
+      if (orphan) {
+        plexPlaylistRatingKey = orphan.plexRatingKey
+        await linkManagedPlexPlaylist(database, {
+          generationId,
+          plexServerId: source.plexServerId,
+          plexRatingKey: orphan.plexRatingKey,
+          name: orphan.title,
+        })
+      }
+    }
     if (!plexPlaylistRatingKey) {
       if (ratingKeys.length === 0) {
         await setPlaylistGenerationStatus(database, generationId, 'ready')
