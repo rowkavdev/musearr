@@ -742,6 +742,9 @@ const RESUMABLE_SYNC_FAILURES = ['upstream_unavailable', 'upstream_response', 'u
 /** A failed run older than this is not resumed; the library may have changed underneath it. */
 const RESUMABLE_SYNC_MAX_AGE_HOURS = 24
 
+/** A run still marked running after this long is treated as orphaned by a crashed worker. */
+const STALE_RUNNING_SYNC_HOURS = 12
+
 /**
  * Returns the saved progress of the latest run for a library section when that run failed
  * with a retryable classification recently enough to continue from. Otherwise returns null
@@ -751,6 +754,17 @@ export async function getResumableSyncProgress(
   database: Database,
   librarySectionId: string,
 ): Promise<SyncProgress | null> {
+  // A run still marked running long after it started belongs to a worker that died. Close it as a
+  // retryable failure so it stops showing as syncing and its saved offset can be picked up below.
+  await database`
+    UPDATE sync_runs
+    SET status = 'failed',
+        finished_at = NOW(),
+        error_summary = 'upstream_unavailable: The sync was interrupted before it finished.'
+    WHERE library_section_id = ${librarySectionId}
+      AND status = 'running'
+      AND started_at < NOW() - make_interval(hours => ${STALE_RUNNING_SYNC_HOURS})
+  `
   const rows = await database<Array<{ status: string; error_summary: string | null; cursor: unknown; counts: unknown; recent: boolean }>>`
     SELECT status, error_summary, cursor, counts,
            COALESCE(finished_at, created_at) > NOW() - make_interval(hours => ${RESUMABLE_SYNC_MAX_AGE_HOURS}) AS recent

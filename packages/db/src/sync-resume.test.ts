@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { resumableProgressFromRun } from './repository.js'
+import type { Database } from './repository.js'
+import { getResumableSyncProgress, resumableProgressFromRun } from './repository.js'
 
 const failedRun = {
   status: 'failed',
@@ -41,5 +42,29 @@ describe('resumableProgressFromRun', () => {
       importedTracks: 0,
       skippedTracks: 0,
     })
+  })
+})
+
+describe('getResumableSyncProgress', () => {
+  it('closes orphaned running runs before reading the latest run', async () => {
+    const statements: string[] = []
+    const database = (async (strings: TemplateStringsArray) => {
+      const statement = strings.join('?')
+      statements.push(statement)
+      if (statement.includes('SELECT status')) {
+        return [{ ...failedRun, cursor: { offset: 400 } }]
+      }
+      return []
+    }) as unknown as Database
+
+    await expect(getResumableSyncProgress(database, 'section-1')).resolves.toEqual({
+      offset: 400,
+      importedTracks: 395,
+      skippedTracks: 5,
+    })
+    expect(statements).toHaveLength(2)
+    expect(statements[0]).toContain('UPDATE sync_runs')
+    expect(statements[0]).toContain("status = 'running'")
+    expect(statements[1]).toContain('SELECT status')
   })
 })
