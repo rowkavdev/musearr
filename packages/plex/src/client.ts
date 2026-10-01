@@ -348,7 +348,7 @@ export class PlexClient {
 
     const path = `/playlists?type=audio&title=${encodeURIComponent(title)}&smart=0&uri=${encodeURIComponent(uriList)}`
     const payload = await this.request<PlexPlaylistResponse>(path, { method: 'POST' })
-    const created = payload.MediaContainer?.Metadata?.[0]
+    const created = payload?.MediaContainer?.Metadata?.[0]
     if (!created?.ratingKey) {
       throw new PlexConnectionError('INVALID_RESPONSE', 'Plex failed to create playlist.')
     }
@@ -447,7 +447,10 @@ export async function createPlexPin(): Promise<PlexPin> {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: 'strong=true',
   })
-  return { id: payload.id, code: payload.code, authToken: payload.authToken ?? null }
+  if (!isRecord(payload) || typeof payload.id !== 'number' || typeof payload.code !== 'string') {
+    throw new PlexConnectionError('INVALID_RESPONSE', 'plex.tv returned an unreadable sign-in code.')
+  }
+  return { id: payload.id, code: payload.code, authToken: typeof payload.authToken === 'string' ? payload.authToken : null }
 }
 
 export function plexPinAuthUrl(code: string): string {
@@ -458,7 +461,10 @@ export function plexPinAuthUrl(code: string): string {
 
 export async function checkPlexPin(id: number): Promise<{ authToken: string | null }> {
   const payload = await plexTvRequest<{ authToken: string | null }>(`/api/v2/pins/${id}`)
-  return { authToken: payload.authToken ?? null }
+  if (!isRecord(payload)) {
+    throw new PlexConnectionError('INVALID_RESPONSE', 'plex.tv returned an unreadable sign-in status.')
+  }
+  return { authToken: typeof payload.authToken === 'string' ? payload.authToken : null }
 }
 
 /**
@@ -477,9 +483,12 @@ export async function listPlexServersForToken(token: string): Promise<PlexAuthor
     headers: { 'X-Plex-Token': token },
   })
 
+  if (!Array.isArray(payload)) {
+    throw new PlexConnectionError('INVALID_RESPONSE', 'plex.tv returned an unreadable server list.')
+  }
   const servers: PlexAuthorizedServer[] = []
   for (const resource of payload) {
-    if (!resource.provides?.split(',').includes('server') || !resource.clientIdentifier || !resource.name) {
+    if (!isRecord(resource) || !resource.provides?.split(',').includes('server') || !resource.clientIdentifier || !resource.name) {
       continue
     }
     const connections = resource.connections ?? []
@@ -545,6 +554,10 @@ function normaliseTrack(
  */
 function serverLibraryUri(machineIdentifier: string, ratingKeys: string[]): string {
   return `server://${machineIdentifier}/com.plexapp.plugins.library/library/metadata/${ratingKeys.join(',')}`
+}
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return typeof value === 'object' && value !== null
 }
 
 function ratingOrNull(value: unknown): number | null {
