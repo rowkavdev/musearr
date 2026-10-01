@@ -6,6 +6,7 @@ const db = vi.hoisted(() => ({
   getGenerationItemStateCounts: vi.fn(),
   getLibrarySyncSources: vi.fn(),
   getPlaylistGenerationJobContext: vi.fn(),
+  getOrphanedPlexPlaylistKey: vi.fn(async (): Promise<string | null> => null),
   getPublishableGenerationItems: vi.fn(),
   linkManagedPlexPlaylist: vi.fn(async () => 'playlist-row-1'),
   markGenerationItemsPublished: vi.fn(async () => undefined),
@@ -14,6 +15,7 @@ const db = vi.hoisted(() => ({
 }))
 
 const plex = vi.hoisted(() => ({
+  audioPlaylists: vi.fn(async () => [] as { plexRatingKey: string; title: string; revision: string | null }[]),
   findAudioPlaylistByTitle: vi.fn(),
   createAudioPlaylist: vi.fn(),
   addPlaylistItems: vi.fn(async () => undefined),
@@ -154,6 +156,44 @@ describe('publishPlaylistToPlex', () => {
 
     expect(plex.addPlaylistItems).toHaveBeenCalledWith('9001', 'machine-1', ['1002'])
     expect(db.markGenerationItemsPublished).toHaveBeenCalledWith(database, ['item-1', 'item-2'])
+  })
+
+  it('links the playlist created by a failed first publish instead of creating a second one', async () => {
+    db.getPlaylistGenerationJobContext.mockResolvedValue(context())
+    db.getOrphanedPlexPlaylistKey.mockResolvedValueOnce('9001')
+    plex.audioPlaylists.mockResolvedValueOnce([{ plexRatingKey: '9001', title: 'Late Night', revision: null }])
+    plex.playlistItems.mockResolvedValueOnce({
+      total: 2,
+      offset: 0,
+      scanned: 2,
+      items: [
+        { plexTrackRatingKey: '1001', addedAt: null },
+        { plexTrackRatingKey: '1002', addedAt: null },
+      ],
+      skipped: 0,
+    })
+
+    await publishPlaylistToPlex(database, config, 'gen-1')
+
+    expect(plex.createAudioPlaylist).not.toHaveBeenCalled()
+    expect(plex.addPlaylistItems).not.toHaveBeenCalled()
+    expect(db.linkManagedPlexPlaylist).toHaveBeenCalledWith(database, {
+      generationId: 'gen-1',
+      plexServerId: 'server-1',
+      plexRatingKey: '9001',
+      name: 'Late Night',
+    })
+    expect(db.markGenerationItemsPublished).toHaveBeenCalledWith(database, ['item-1', 'item-2'])
+  })
+
+  it('creates a new playlist when the orphaned one no longer exists in Plex', async () => {
+    db.getPlaylistGenerationJobContext.mockResolvedValue(context())
+    db.getOrphanedPlexPlaylistKey.mockResolvedValueOnce('9001')
+    plex.audioPlaylists.mockResolvedValueOnce([])
+
+    await publishPlaylistToPlex(database, config, 'gen-1')
+
+    expect(plex.createAudioPlaylist).toHaveBeenCalledWith('machine-1', 'Late Night', ['1001', '1002'])
   })
 
   it('makes no Plex writes when a re-publish has nothing new', async () => {
