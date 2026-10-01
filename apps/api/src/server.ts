@@ -724,6 +724,10 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     if (typeof body?.username !== 'string' || typeof body?.password !== 'string') {
       return sendProblem(reply, 400, 'INVALID_REQUEST', 'Enter your local owner credentials.')
     }
+    // Setup caps these at 64 and 1024, so no real account is longer. Stops huge values becoming throttle keys.
+    if (body.username.length > 64 || body.password.length > 1024) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'The username or password is too long.')
+    }
 
     const throttleAddress = request.ip
     const throttleUsername = body.username.trim().toLowerCase()
