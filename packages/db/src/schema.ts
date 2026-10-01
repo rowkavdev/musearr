@@ -47,6 +47,7 @@ export const users = pgTable(
     timezone: text('timezone').notNull().default('UTC'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     disabledAt: timestamp('disabled_at', { withTimezone: true }),
+    sessionVersion: integer('session_version').notNull().default(0),
   },
   (table) => [uniqueIndex('users_username_key').on(table.username)],
 )
