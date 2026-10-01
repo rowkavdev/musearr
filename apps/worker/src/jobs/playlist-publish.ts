@@ -72,21 +72,7 @@ export async function publishPlaylistToPlex(
 
   try {
     if (!plexPlaylistRatingKey && ratingKeys.length > 0) {
-      // A failed first publish may have created the playlist in Plex without
-      // linking it. Adopt that playlist so a retry does not create a second.
-      const orphanKey = await getOrphanedPlexPlaylistKey(database, generationId)
-      const orphan = orphanKey
-        ? (await client.audioPlaylists()).find((playlist) => playlist.plexRatingKey === orphanKey)
-        : undefined
-      if (orphan) {
-        plexPlaylistRatingKey = orphan.plexRatingKey
-        await linkManagedPlexPlaylist(database, {
-          generationId,
-          plexServerId: source.plexServerId,
-          plexRatingKey: orphan.plexRatingKey,
-          name: orphan.title,
-        })
-      }
+      plexPlaylistRatingKey = await adoptOrphanedPlaylist(database, client, generationId, source.plexServerId)
     }
     if (!plexPlaylistRatingKey) {
       if (ratingKeys.length === 0) {
@@ -110,13 +96,7 @@ export async function publishPlaylistToPlex(
         name: title,
       })
     } else if (ratingKeys.length > 0) {
-      // A retry after a failed bookkeeping write finds these tracks already
-      // in the playlist; Plex would append them a second time.
-      const present = await playlistTrackKeys(client, plexPlaylistRatingKey)
-      const missing = ratingKeys.filter((key) => !present.has(key))
-      if (missing.length > 0) {
-        await client.addPlaylistItems(plexPlaylistRatingKey, source.machineIdentifier, missing)
-      }
+      await appendMissingTracks(client, plexPlaylistRatingKey, source.machineIdentifier, ratingKeys)
     }
   } catch (error) {
     await recordPlaylistPublication(database, {
@@ -152,4 +132,49 @@ export async function publishPlaylistToPlex(
   })
 
   return { created, added: ratingKeys.length, status }
+}
+
+/**
+ * A failed first publish may have created the playlist in Plex without
+ * linking it. Link that playlist so a retry does not create a second one.
+ * Returns its rating key, or null when there is nothing to adopt.
+ */
+async function adoptOrphanedPlaylist(
+  database: Database,
+  client: PlexClient,
+  generationId: string,
+  plexServerId: string,
+): Promise<string | null> {
+  const orphanKey = await getOrphanedPlexPlaylistKey(database, generationId)
+  if (!orphanKey) {
+    return null
+  }
+  const orphan = (await client.audioPlaylists()).find((playlist) => playlist.plexRatingKey === orphanKey)
+  if (!orphan) {
+    return null
+  }
+  await linkManagedPlexPlaylist(database, {
+    generationId,
+    plexServerId,
+    plexRatingKey: orphan.plexRatingKey,
+    name: orphan.title,
+  })
+  return orphan.plexRatingKey
+}
+
+/**
+ * A retry after a failed bookkeeping write finds some tracks already in the
+ * playlist; Plex would append them a second time.
+ */
+async function appendMissingTracks(
+  client: PlexClient,
+  playlistRatingKey: string,
+  machineIdentifier: string,
+  ratingKeys: string[],
+): Promise<void> {
+  const present = await playlistTrackKeys(client, playlistRatingKey)
+  const missing = ratingKeys.filter((key) => !present.has(key))
+  if (missing.length > 0) {
+    await client.addPlaylistItems(playlistRatingKey, machineIdentifier, missing)
+  }
 }
