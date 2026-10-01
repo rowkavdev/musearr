@@ -171,7 +171,9 @@ export function normalisePlexBaseUrl(rawUrl: string): string {
 // are the usual SSRF targets (#83). LAN, Docker host and loopback stay allowed.
 function isLinkLocalHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
-  if (host === 'metadata.google.internal') return true
+  if (host === 'metadata.google.internal' || host === 'metadata.goog') return true
+  // Alibaba Cloud and AWS IPv6 metadata endpoints.
+  if (host === '100.100.100.200' || host === 'fd00:ec2::254') return true
   if (/^169\.254\.\d{1,3}\.\d{1,3}$/.test(host)) return true
   if (/^fe[89ab][0-9a-f]:/.test(host)) return true
   // WHATWG URL rewrites ::ffff:a.b.c.d to hex groups, e.g. ::ffff:a9fe:a9fe.
