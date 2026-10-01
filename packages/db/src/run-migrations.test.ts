@@ -29,6 +29,23 @@ async function migrationDir(files: Record<string, string>) {
 }
 
 describe('runMigrations', () => {
+  it('holds the advisory lock before touching anything and releases it after', async () => {
+    const directory = await migrationDir({ '0001_a.sql': 'SELECT 1;' })
+    const { database, events } = fakeDatabase()
+    await runMigrations(database, directory, () => undefined)
+    expect(events[0]).toBe('SELECT pg_advisory_lock(?)')
+    expect(events.at(-1)).toBe('SELECT pg_advisory_unlock(?)')
+    expect(events.findIndex((event) => event.startsWith('CREATE TABLE'))).toBeGreaterThan(0)
+  })
+
+  it('releases the lock when a migration fails', async () => {
+    const directory = await migrationDir({ '0001_a.sql': 'SELECT 1;' })
+    const { database, events } = fakeDatabase()
+    ;(database as unknown as { begin: unknown }).begin = async () => { throw new Error('boom') }
+    await expect(runMigrations(database, directory, () => undefined)).rejects.toThrow('boom')
+    expect(events.at(-1)).toBe('SELECT pg_advisory_unlock(?)')
+  })
+
   it('applies only unapplied files, in filename order', async () => {
     const directory = await migrationDir({ '0002_b.sql': 'B;', '0001_a.sql': 'A;', '0003_c.sql': 'C;' })
     const { database, events } = fakeDatabase(['0001_a.sql'])

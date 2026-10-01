@@ -2,13 +2,21 @@ import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type postgres from 'postgres'
 
-/** Applies pending .sql migrations in filename order. */
+// Arbitrary constant shared by every Musearr migrator, so only one runs at a time.
+const MIGRATION_LOCK_ID = 7_340_113_201
+
+/**
+ * Applies pending .sql migrations in filename order. The database must be a
+ * single-connection client: the advisory lock belongs to that session and is
+ * released when it ends, so a crashed migrator cannot leave it held.
+ */
 export async function runMigrations(
   database: postgres.Sql,
   migrationDirectory: string,
   log: (message: string) => void = console.info,
 ): Promise<void> {
-  {
+  await database`SELECT pg_advisory_lock(${MIGRATION_LOCK_ID})`
+  try {
     await database`
       CREATE TABLE IF NOT EXISTS musearr_schema_migrations (
         name text PRIMARY KEY,
@@ -36,5 +44,7 @@ export async function runMigrations(
       })
       log(`Applied migration ${name}`)
     }
+  } finally {
+    await database`SELECT pg_advisory_unlock(${MIGRATION_LOCK_ID})`
   }
 }
