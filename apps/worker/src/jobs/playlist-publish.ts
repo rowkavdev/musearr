@@ -71,18 +71,16 @@ export async function publishPlaylistToPlex(
   let created = false
 
   try {
-    if (!plexPlaylistRatingKey && ratingKeys.length > 0) {
-      plexPlaylistRatingKey = await adoptOrphanedPlaylist(database, client, generationId, source.plexServerId)
-    } else if (plexPlaylistRatingKey && ratingKeys.length > 0) {
-      // The owner can delete the managed playlist in Plex after it was linked.
-      // Appending to the stale key fails every retry as a misleading Plex
-      // outage, so a link that no longer exists is recreated instead.
-      plexPlaylistRatingKey = await keepIfPlaylistExists(client, plexPlaylistRatingKey)
-      if (!plexPlaylistRatingKey) {
-        // The new playlist starts empty, so it needs the tracks published earlier too.
-        items = await getPublishableGenerationItems(database, generationId, true)
-        ratingKeys = items.map((item) => item.plexRatingKey)
-      }
+    if (ratingKeys.length > 0) {
+      ;({ ratingKey: plexPlaylistRatingKey, items } = await resolveTargetPlaylist(
+        database,
+        client,
+        generationId,
+        source.plexServerId,
+        plexPlaylistRatingKey,
+        items,
+      ))
+      ratingKeys = items.map((item) => item.plexRatingKey)
     }
     if (!plexPlaylistRatingKey) {
       if (ratingKeys.length === 0) {
@@ -141,9 +139,32 @@ export async function publishPlaylistToPlex(
   return { created, added: ratingKeys.length, status }
 }
 
-async function keepIfPlaylistExists(client: PlexClient, ratingKey: string): Promise<string | null> {
+type PublishItems = Awaited<ReturnType<typeof getPublishableGenerationItems>>
+
+/**
+ * Picks the Plex playlist to publish into. A generation with no link may have an unlinked
+ * playlist from a failed first publish. A link whose playlist the owner deleted in Plex is
+ * dropped: appending to it would fail every retry as a misleading outage. The replacement then
+ * starts empty, so it gets the tracks published earlier too.
+ */
+async function resolveTargetPlaylist(
+  database: Database,
+  client: PlexClient,
+  generationId: string,
+  plexServerId: string,
+  linkedKey: string | null,
+  items: PublishItems,
+): Promise<{ ratingKey: string | null; items: PublishItems }> {
+  if (!linkedKey) {
+    return { ratingKey: await adoptOrphanedPlaylist(database, client, generationId, plexServerId), items }
+  }
   const playlists = await client.audioPlaylists()
-  return playlists.some((playlist) => playlist.plexRatingKey === ratingKey) ? ratingKey : null
+  if (playlists.some((playlist) => playlist.plexRatingKey === linkedKey)) {
+    return { ratingKey: linkedKey, items }
+  }
+  // A replacement may already exist from a run that created it but failed to link it.
+  const adopted = await adoptOrphanedPlaylist(database, client, generationId, plexServerId, linkedKey)
+  return { ratingKey: adopted, items: await getPublishableGenerationItems(database, generationId, true) }
 }
 
 async function unusedPlaylistTitle(client: PlexClient, name: string): Promise<string> {
@@ -164,8 +185,9 @@ async function adoptOrphanedPlaylist(
   client: PlexClient,
   generationId: string,
   plexServerId: string,
+  staleRatingKey: string | null = null,
 ): Promise<string | null> {
-  const orphanKey = await getOrphanedPlexPlaylistKey(database, generationId)
+  const orphanKey = await getOrphanedPlexPlaylistKey(database, generationId, staleRatingKey)
   if (!orphanKey) {
     return null
   }
