@@ -749,12 +749,16 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   app.post('/api/v1/auth/logout', async (request, reply) => {
     // Revoke before clearing the cookie so a copied token stops working. A missing or
     // invalid token has nothing to revoke; the cookie is cleared either way.
+    let signedIn = false
     try {
       await request.jwtVerify()
-      await sessions.revoke(request.user.sub)
+      signedIn = true
     } catch {
-      // not signed in
+      // Missing or invalid tokens have nothing to revoke.
     }
+    // A storage failure must not look like successful logout while copied tokens
+    // remain valid. Let the server return an error and keep the cookie for retry.
+    if (signedIn) await sessions.revoke(request.user.sub)
     reply.clearCookie(SESSION_COOKIE, sessionCookieOptions(request))
     return reply.code(204).send()
   })
