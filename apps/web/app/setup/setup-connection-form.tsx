@@ -117,7 +117,7 @@ export function SetupConnectionForm() {
 
       let failedStatus: number | null = null
       try {
-        const check = await checkPinStatus<PlexPinStatusResponse>(fetch, `/api/v1/setup/plex-pin/${pin.id}`, getIssue)
+        const check = await checkPinStatus(fetch, `/api/v1/setup/plex-pin/${pin.id}`, getIssue)
         if (!check.ok) {
           failedStatus = check.status
           throw new Error(check.message ?? 'Musearr could not check Plex sign-in status.')
