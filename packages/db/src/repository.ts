@@ -598,6 +598,9 @@ export async function getSetupStatus(database: Database): Promise<SetupStatusRec
 
 export async function insertInitialSetup(database: Database, setup: InitialSetup): Promise<InitialSetupResult> {
   return database.begin(async (transaction) => {
+    // Nothing in the schema limits instances to one row, so two setup requests arriving together
+    // would both pass the check below. Serialize them; the second then sees the first's instance.
+    await transaction`SELECT pg_advisory_xact_lock(hashtextextended('musearr:initial-setup', 0))`
     const existing = await transaction`SELECT id FROM instances LIMIT 1`
     if (existing.length > 0) {
       throw new Error('INSTANCE_ALREADY_CONFIGURED')
