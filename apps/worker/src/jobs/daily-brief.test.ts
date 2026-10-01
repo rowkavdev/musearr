@@ -91,4 +91,22 @@ describe('daily briefing job', () => {
     expect(mocks.deliverDiscordDailyBrief).not.toHaveBeenCalled()
     expect(result).toMatchObject({ created: false, delivered: true })
   })
+
+  it('retries recording a delivery that already reached Discord instead of marking it failed', async () => {
+    mocks.getDailyBriefForDate.mockResolvedValue(savedBrief)
+    mocks.getDailyBriefDelivery.mockResolvedValue(null)
+    mocks.deliverDiscordDailyBrief.mockResolvedValue(undefined)
+    mocks.completeDiscordDailyBriefDelivery.mockRejectedValueOnce(new Error('db down')).mockResolvedValue(undefined)
+
+    const result = await generateDailyBrief(database, 'owner-id', {
+      timezone: 'Europe/London',
+      discordWebhookUrl: 'https://discord.com/api/webhooks/123/token',
+      now: new Date('2026-08-05T07:30:00.000Z'),
+    })
+
+    expect(mocks.deliverDiscordDailyBrief).toHaveBeenCalledTimes(1)
+    expect(mocks.completeDiscordDailyBriefDelivery).toHaveBeenCalledTimes(2)
+    expect(mocks.failDiscordDailyBriefDelivery).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ delivered: true })
+  })
 })

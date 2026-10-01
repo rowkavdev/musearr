@@ -57,11 +57,26 @@ export async function generateDailyBrief(
   await beginDiscordDailyBriefDelivery(database, brief.id)
   try {
     await deliverDiscordDailyBrief(options.discordWebhookUrl, brief.content)
-    await completeDiscordDailyBriefDelivery(database, brief.id)
-    return { brief, created, delivered: true }
   } catch (error) {
     await failDiscordDailyBriefDelivery(database, brief.id, deliveryFailureSummary(error))
     throw error
+  }
+  await recordDeliveryCompleted(database, brief.id)
+  return { brief, created, delivered: true }
+}
+
+const COMPLETE_ATTEMPTS = 3
+
+// The Discord post has already landed. A failure to record it must not be
+// reported as a delivery failure, because the retry would post the brief again.
+async function recordDeliveryCompleted(database: Database, briefId: string): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await completeDiscordDailyBriefDelivery(database, briefId)
+      return
+    } catch (error) {
+      if (attempt >= COMPLETE_ATTEMPTS) throw error
+    }
   }
 }
 
