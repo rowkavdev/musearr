@@ -82,7 +82,14 @@ export async function publishPlaylistToPlex(
         name: title,
       })
     } else if (ratingKeys.length > 0) {
-      await client.addPlaylistItems(plexPlaylistRatingKey, source.machineIdentifier, ratingKeys)
+      // A retry can follow an append that reached Plex before the database
+      // write failed. Skip tracks already in the playlist so Plex never gets
+      // the same entry twice.
+      const present = await playlistTrackKeys(client, plexPlaylistRatingKey)
+      const missing = ratingKeys.filter((key) => !present.has(key))
+      if (missing.length > 0) {
+        await client.addPlaylistItems(plexPlaylistRatingKey, source.machineIdentifier, missing)
+      }
     }
   } catch (error) {
     await recordPlaylistPublication(database, {
@@ -118,4 +125,18 @@ export async function publishPlaylistToPlex(
   })
 
   return { created, added: ratingKeys.length, status }
+}
+
+async function playlistTrackKeys(client: PlexClient, playlistRatingKey: string): Promise<Set<string>> {
+  const keys = new Set<string>()
+  const pageSize = 500
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await client.playlistItems(playlistRatingKey, offset, pageSize)
+    for (const item of page.items) {
+      keys.add(item.plexTrackRatingKey)
+    }
+    if (page.scanned === 0 || offset + page.scanned >= page.total) {
+      return keys
+    }
+  }
 }
