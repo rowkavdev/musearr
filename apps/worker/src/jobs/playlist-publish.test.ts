@@ -154,6 +154,25 @@ describe('publishPlaylistToPlex', () => {
     expect(outcome).toMatchObject({ created: true, added: 2 })
   })
 
+  it('rebuilds a recreated playlist with the tracks published into the deleted one', async () => {
+    db.getPlaylistGenerationJobContext.mockResolvedValue(context({ plexPlaylistRatingKey: '9001', status: 'published' }))
+    plex.audioPlaylists.mockResolvedValue([])
+    db.getPublishableGenerationItems.mockImplementation(async (_db: unknown, _id: string, includePublished?: boolean) =>
+      includePublished
+        ? [
+            { id: 'item-0', plexRatingKey: '1000' },
+            { id: 'item-3', plexRatingKey: '1003' },
+          ]
+        : [{ id: 'item-3', plexRatingKey: '1003' }],
+    )
+    plex.createAudioPlaylist.mockResolvedValue({ plexRatingKey: '9002', title: 'Late Night' })
+
+    const outcome = await publishPlaylistToPlex(database, config, 'gen-1')
+
+    expect(plex.createAudioPlaylist).toHaveBeenCalledWith('machine-1', 'Late Night', ['1000', '1003'])
+    expect(outcome).toMatchObject({ created: true, added: 2 })
+  })
+
   it('#97 does not re-add tracks already in the Plex playlist after a failed bookkeeping write', async () => {
     db.getPlaylistGenerationJobContext.mockResolvedValue(context({ plexPlaylistRatingKey: '9001', status: 'publishing' }))
     plex.audioPlaylists.mockResolvedValue([{ plexRatingKey: '9001', title: 'Late Night', revision: null }])

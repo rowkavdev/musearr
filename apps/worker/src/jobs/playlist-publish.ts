@@ -64,8 +64,8 @@ export async function publishPlaylistToPlex(
     source.baseUrl,
     decryptSecret(source.tokenCiphertext, config.MUSEARR_ENCRYPTION_KEY),
   )
-  const items = await getPublishableGenerationItems(database, generationId)
-  const ratingKeys = items.map((item) => item.plexRatingKey)
+  let items = await getPublishableGenerationItems(database, generationId)
+  let ratingKeys = items.map((item) => item.plexRatingKey)
 
   let plexPlaylistRatingKey = context.plexPlaylistRatingKey
   let created = false
@@ -78,6 +78,11 @@ export async function publishPlaylistToPlex(
       // Appending to the stale key fails every retry as a misleading Plex
       // outage, so a link that no longer exists is recreated instead.
       plexPlaylistRatingKey = await keepIfPlaylistExists(client, plexPlaylistRatingKey)
+      if (!plexPlaylistRatingKey) {
+        // The new playlist starts empty, so it needs the tracks published earlier too.
+        items = await getPublishableGenerationItems(database, generationId, true)
+        ratingKeys = items.map((item) => item.plexRatingKey)
+      }
     }
     if (!plexPlaylistRatingKey) {
       if (ratingKeys.length === 0) {

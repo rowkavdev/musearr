@@ -585,13 +585,14 @@ export async function getGenerationItemStateCounts(
 export async function getPublishableGenerationItems(
   database: Database,
   generationId: string,
+  includePublished = false,
 ): Promise<Array<{ id: string; plexRatingKey: string; position: number }>> {
   const rows = await database<Array<{ id: string; plex_rating_key: string; position: number }>>`
     SELECT id, plex_rating_key, position
     FROM playlist_generation_items
     WHERE generation_id = ${generationId}
       AND plex_rating_key IS NOT NULL
-      AND published_at IS NULL
+      AND (${includePublished} OR published_at IS NULL)
     ORDER BY position ASC
   `
   return rows.map((row) => ({ id: row.id, plexRatingKey: row.plex_rating_key, position: row.position }))
