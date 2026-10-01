@@ -40,4 +40,23 @@ describe('login throttle', () => {
     expect(throttle.reserve('fresh', 'owner')).toBeGreaterThan(0)
     expect(throttle.reserve('addr0', 'owner')).toBeGreaterThan(0)
   })
+
+  it('does not spend the address allowance on successful logins', () => {
+    const throttle = createLoginThrottle(() => 0)
+    for (let i = 0; i < LOGIN_MAX_FAILURES_PER_ADDRESS * 3; i++) {
+      expect(throttle.reserve('home', 'owner')).toBe(0)
+      throttle.recordSuccess('home', 'owner')
+    }
+    expect(throttle.reserve('home', 'someone')).toBe(0)
+  })
+
+  it('keeps failures from other usernames on the address when one login succeeds', () => {
+    const throttle = createLoginThrottle(() => 0)
+    for (let i = 0; i < LOGIN_MAX_FAILURES_PER_ADDRESS - 1; i++) throttle.reserve('home', `guess${i}`)
+    expect(throttle.reserve('home', 'owner')).toBe(0)
+    throttle.recordSuccess('home', 'owner')
+    // 49 failures remain, so exactly one more attempt fits before the address limit.
+    expect(throttle.reserve('home', 'next')).toBe(0)
+    expect(throttle.reserve('home', 'after')).toBeGreaterThan(0)
+  })
 })
