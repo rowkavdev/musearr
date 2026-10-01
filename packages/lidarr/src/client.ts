@@ -135,7 +135,10 @@ export class LidarrClient {
   }
 
   async systemStatus(): Promise<{ version: string; instanceName: string | null }> {
-    const payload = await this.request<UnknownRecord>('GET', '/api/v1/system/status')
+    const payload = await this.request<UnknownRecord | null | undefined>('GET', '/api/v1/system/status')
+    if (typeof payload !== 'object' || payload === null) {
+      throw new LidarrConnectionError('INVALID_RESPONSE', 'Lidarr returned an unreadable system status.')
+    }
     return {
       version: stringOr(payload.version, '0.0.0'),
       instanceName: optionalString(payload.instanceName),
@@ -199,8 +202,8 @@ export class LidarrClient {
       monitored: input.monitored ?? true,
       addOptions: { monitor: 'all', searchForMissingAlbums: false },
     }
-    const payload = await this.request<UnknownRecord>('POST', '/api/v1/artist', body)
-    const [artist] = normaliseArtist(payload)
+    const payload = await this.request<UnknownRecord | null | undefined>('POST', '/api/v1/artist', body)
+    const [artist] = typeof payload === 'object' && payload !== null ? normaliseArtist(payload) : []
     if (!artist) {
       throw new LidarrConnectionError('INVALID_RESPONSE', 'Lidarr did not confirm the added artist.')
     }
@@ -376,7 +379,9 @@ function normaliseArtist(raw: UnknownRecord): LidarrArtist[] {
 }
 
 function asArray(value: unknown): UnknownRecord[] {
-  return Array.isArray(value) ? (value as UnknownRecord[]) : []
+  return Array.isArray(value)
+    ? (value as unknown[]).filter((row): row is UnknownRecord => typeof row === 'object' && row !== null)
+    : []
 }
 
 function optionalString(value: unknown): string | null {
