@@ -173,6 +173,38 @@ describe('publishPlaylistToPlex', () => {
     expect(outcome).toMatchObject({ created: true, added: 2 })
   })
 
+  it('keeps the old link until the replacement is created, so a failed create retries with every track', async () => {
+    db.getPlaylistGenerationJobContext.mockResolvedValue(context({ plexPlaylistRatingKey: '9001', status: 'published' }))
+    plex.audioPlaylists.mockResolvedValue([])
+    db.getPublishableGenerationItems.mockImplementation(async (_db: unknown, _id: string, includePublished?: boolean) =>
+      includePublished ? [{ id: 'item-0', plexRatingKey: '1000' }, { id: 'item-3', plexRatingKey: '1003' }] : [{ id: 'item-3', plexRatingKey: '1003' }],
+    )
+    plex.createAudioPlaylist.mockRejectedValueOnce(new Error('plex down'))
+    plex.createAudioPlaylist.mockResolvedValueOnce({ plexRatingKey: '9002', title: 'Late Night' })
+
+    await expect(publishPlaylistToPlex(database, config, 'gen-1')).rejects.toThrow('plex down')
+    expect(db.linkManagedPlexPlaylist).not.toHaveBeenCalled()
+
+    const outcome = await publishPlaylistToPlex(database, config, 'gen-1')
+    expect(plex.createAudioPlaylist).toHaveBeenLastCalledWith('machine-1', 'Late Night', ['1000', '1003'])
+    expect(outcome).toMatchObject({ created: true, added: 2 })
+  })
+
+  it('adopts a replacement that was created but never linked instead of making another', async () => {
+    db.getPlaylistGenerationJobContext.mockResolvedValue(context({ plexPlaylistRatingKey: '9001', status: 'publishing' }))
+    db.getOrphanedPlexPlaylistKey.mockResolvedValueOnce('9002')
+    plex.audioPlaylists.mockResolvedValue([{ plexRatingKey: '9002', title: 'Late Night', revision: null }])
+    db.getPublishableGenerationItems.mockResolvedValue([{ id: 'item-0', plexRatingKey: '1000' }])
+    plex.playlistItems.mockResolvedValue({ total: 1, offset: 0, scanned: 1, items: [{ plexTrackRatingKey: '1000', addedAt: null }], skipped: 0 })
+
+    const outcome = await publishPlaylistToPlex(database, config, 'gen-1')
+
+    expect(db.getOrphanedPlexPlaylistKey).toHaveBeenCalledWith(database, 'gen-1', '9001')
+    expect(plex.createAudioPlaylist).not.toHaveBeenCalled()
+    expect(db.linkManagedPlexPlaylist).toHaveBeenCalledWith(database, expect.objectContaining({ plexRatingKey: '9002' }))
+    expect(outcome).toMatchObject({ created: false })
+  })
+
   it('#97 does not re-add tracks already in the Plex playlist after a failed bookkeeping write', async () => {
     db.getPlaylistGenerationJobContext.mockResolvedValue(context({ plexPlaylistRatingKey: '9001', status: 'publishing' }))
     plex.audioPlaylists.mockResolvedValue([{ plexRatingKey: '9001', title: 'Late Night', revision: null }])

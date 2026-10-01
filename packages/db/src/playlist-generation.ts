@@ -633,11 +633,25 @@ export async function linkManagedPlexPlaylist(
     if (!playlist) {
       throw new Error('Failed to record the managed Plex playlist.')
     }
+    const previous = await transaction<Array<{ plex_playlist_id: string | null }>>`
+      SELECT plex_playlist_id FROM playlist_generations WHERE id = ${input.generationId} FOR UPDATE
+    `
     await transaction`
       UPDATE playlist_generations
       SET plex_playlist_id = ${playlist.id}, updated_at = NOW()
       WHERE id = ${input.generationId}
     `
+    // Relinking after the old Plex playlist was deleted: stop treating its row as managed
+    // unless another generation still uses it.
+    const previousId = previous[0]?.plex_playlist_id
+    if (previousId && previousId !== playlist.id) {
+      await transaction`
+        UPDATE playlists
+        SET managed_by_musearr = false, updated_at = NOW()
+        WHERE id = ${previousId}
+          AND NOT EXISTS (SELECT 1 FROM playlist_generations WHERE plex_playlist_id = ${previousId})
+      `
+    }
     return playlist.id
   })
 }
@@ -647,13 +661,17 @@ export async function linkManagedPlexPlaylist(
  * A failed publication row keeps the created rating key, so a retry can adopt
  * that playlist instead of creating a second one.
  */
-export async function getOrphanedPlexPlaylistKey(database: Database, generationId: string): Promise<string | null> {
+export async function getOrphanedPlexPlaylistKey(
+  database: Database,
+  generationId: string,
+  staleRatingKey: string | null = null,
+): Promise<string | null> {
   const rows = await database<Array<{ plex_playlist_rating_key: string | null }>>`
     SELECT publication.plex_playlist_rating_key
     FROM playlist_publications publication
     JOIN playlist_generations generation ON generation.id = publication.generation_id
     WHERE publication.generation_id = ${generationId}
-      AND generation.plex_playlist_id IS NULL
+      AND (generation.plex_playlist_id IS NULL OR publication.plex_playlist_rating_key IS DISTINCT FROM ${staleRatingKey})
       AND publication.status = 'failed'
       AND publication.plex_playlist_rating_key IS NOT NULL
     ORDER BY publication.created_at DESC
