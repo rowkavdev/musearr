@@ -159,8 +159,24 @@ export function normalisePlexBaseUrl(rawUrl: string): string {
     throw new PlexConnectionError('INVALID_RESPONSE', 'Use only the Plex server origin, without credentials or query parameters.')
   }
 
+  if (isLinkLocalHost(parsed.hostname)) {
+    throw new PlexConnectionError('INVALID_RESPONSE', 'Use the address of your Plex server, not a link-local or cloud metadata address.')
+  }
+
   parsed.pathname = parsed.pathname.replace(/\/$/, '')
   return parsed.toString().replace(/\/$/, '')
+}
+
+// Link-local ranges and cloud metadata names are never a Plex server, and they
+// are the usual SSRF targets (#83). LAN, Docker host and loopback stay allowed.
+function isLinkLocalHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
+  if (host === 'metadata.google.internal') return true
+  if (/^169\.254\.\d{1,3}\.\d{1,3}$/.test(host)) return true
+  if (/^fe[89ab][0-9a-f]:/.test(host)) return true
+  // WHATWG URL rewrites ::ffff:a.b.c.d to hex groups, e.g. ::ffff:a9fe:a9fe.
+  const mapped = host.match(/^::ffff:([0-9a-f]{1,4}):[0-9a-f]{1,4}$/)
+  return mapped !== null && parseInt(mapped[1] as string, 16) >> 8 === 169 && (parseInt(mapped[1] as string, 16) & 255) === 254
 }
 
 export class PlexClient {
