@@ -14,6 +14,9 @@ jobs:
   publish:
     name: Publish ${{ matrix.component }} image
     runs-on: ubuntu-latest
+    # Multi-arch builds run under QEMU, so leave generous headroom. The cap
+    # stops a hung build from holding publish credentials for 6 hours.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
