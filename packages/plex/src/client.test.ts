@@ -29,6 +29,13 @@ describe('normalisePlexBaseUrl', () => {
     expect(normalisePlexBaseUrl('http://[::1]:32400')).toBe('http://[::1]:32400')
   })
 
+  it('rejects the Alibaba, AWS IPv6 and short Google metadata endpoints (#83)', () => {
+    for (const url of ['http://100.100.100.200/latest/meta-data', 'http://[fd00:ec2::254]/latest', 'http://metadata.goog/', 'http://metadata.google.internal./']) {
+      expect(() => normalisePlexBaseUrl(url), url).toThrow(PlexConnectionError)
+    }
+    expect(normalisePlexBaseUrl('http://100.64.0.5:32400')).toBe('http://100.64.0.5:32400')
+  })
+
   it('maps Plex track pages while retaining source identifiers and optional playback fields', async () => {
     vi.stubGlobal(
       'fetch',
