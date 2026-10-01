@@ -30,10 +30,11 @@ describe('normalisePlexBaseUrl', () => {
   })
 
   it('rejects the Alibaba, AWS IPv6 and short Google metadata endpoints (#83)', () => {
-    for (const url of ['http://100.100.100.200/latest/meta-data', 'http://[fd00:ec2::254]/latest', 'http://metadata.goog/', 'http://metadata.google.internal./']) {
+    for (const url of ['http://100.100.100.200/latest/meta-data', 'http://[fd00:ec2::254]/latest', 'http://metadata.goog/', 'http://metadata.google.internal./', 'http://[::ffff:100.100.100.200]/', 'http://[::ffff:169.254.169.254]:32400']) {
       expect(() => normalisePlexBaseUrl(url), url).toThrow(PlexConnectionError)
     }
     expect(normalisePlexBaseUrl('http://100.64.0.5:32400')).toBe('http://100.64.0.5:32400')
+    expect(normalisePlexBaseUrl('http://[::ffff:192.168.1.20]:32400')).toBe('http://[::ffff:c0a8:114]:32400')
   })
 
   it('maps Plex track pages while retaining source identifiers and optional playback fields', async () => {
