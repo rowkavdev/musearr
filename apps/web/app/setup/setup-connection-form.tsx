@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { shouldRetryPinPoll } from './pin-poll'
 import { useRouter } from 'next/navigation'
 
 type MusicLibrary = { id: string; title: string; type: 'artist' }
@@ -102,6 +103,7 @@ export function SetupConnectionForm() {
 
     const generation = ++pollGeneration.current
     const deadline = Date.now() + PIN_TIMEOUT_MS
+    let consecutiveFailures = 0
 
     const poll = async () => {
       if (generation !== pollGeneration.current) {
@@ -113,11 +115,20 @@ export function SetupConnectionForm() {
         return
       }
 
+      let failedStatus: number | null = null
       try {
-        const response = await fetch(`/api/v1/setup/plex-pin/${pin.id}`)
+        let response: Response
+        try {
+          response = await fetch(`/api/v1/setup/plex-pin/${pin.id}`)
+        } catch {
+          failedStatus = null
+          throw new Error('Musearr could not check Plex sign-in status.')
+        }
         if (!response.ok) {
+          failedStatus = response.status
           throw new Error(await getIssue(response))
         }
+        consecutiveFailures = 0
         const status = (await response.json()) as PlexPinStatusResponse
         if (generation !== pollGeneration.current) {
           return
@@ -150,6 +161,12 @@ export function SetupConnectionForm() {
         }
       } catch (error) {
         if (generation !== pollGeneration.current) {
+          return
+        }
+        consecutiveFailures += 1
+        // A brief plex.tv or network hiccup should not throw away an approval the user is giving.
+        if (shouldRetryPinPoll(failedStatus, consecutiveFailures)) {
+          pollHandle.current = setTimeout(poll, PIN_POLL_INTERVAL_MS)
           return
         }
         setPinState('error')
