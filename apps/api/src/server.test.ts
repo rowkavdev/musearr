@@ -479,6 +479,24 @@ describe('login input caps', () => {
     expect((await post({ username: 'owner', password: 'x'.repeat(1025) })).statusCode).toBe(400)
     expect(queries).toBe(0)
   })
+
+  it('rejects a username containing NUL before touching the database', async () => {
+    let queries = 0
+    const database = (async () => {
+      queries += 1
+      return []
+    }) as unknown as Database
+    const app = createServer({ database })
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      headers: { origin: 'https://musearr.test' },
+      payload: { username: 'own\u0000er', password: 'x' },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(queries).toBe(0)
+  })
 })
 
 describe('session lifetime', () => {

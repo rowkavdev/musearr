@@ -733,6 +733,10 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     if (body.username.length > 64 || body.password.length > 1024) {
       return sendProblem(reply, 400, 'INVALID_REQUEST', 'The username or password is too long.')
     }
+    // Postgres text cannot hold NUL, so keep it out of the query and the throttle key.
+    if (body.username.includes('\u0000')) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'The username contains an invalid character.')
+    }
 
     const throttleAddress = request.ip
     const throttleUsername = body.username.trim().toLowerCase()
