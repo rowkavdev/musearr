@@ -4,6 +4,8 @@ import { MusicBrainzClient, MusicBrainzError, type MusicBrainzClientOptions } fr
 export type MusicBrainzProviderOptions = MusicBrainzClientOptions & {
   /** Cap on MusicBrainz recording look-ups per generation (rate-limit budget). */
   maxLookups?: number
+  /** Called when a metadata look-up fails and that neighbour is skipped. Defaults to a console warning with the error code only. */
+  onLookupError?: (error: unknown) => void
 }
 
 /**
@@ -15,10 +17,17 @@ export class MusicBrainzSimilarTrackProvider implements SimilarTrackProvider {
   readonly name = 'musicbrainz'
   private readonly client: MusicBrainzClient
   private readonly maxLookups: number
+  private readonly onLookupError: (error: unknown) => void
 
   constructor(options: MusicBrainzProviderOptions) {
     this.client = new MusicBrainzClient(options)
     this.maxLookups = Math.max(0, options.maxLookups ?? 12)
+    this.onLookupError =
+      options.onLookupError ??
+      ((error) => {
+        // Codes and constant messages only: nothing from the response or URL.
+        console.warn('MusicBrainz metadata look-up failed; skipping that track.', error instanceof MusicBrainzError ? error.code : 'UNKNOWN')
+      })
   }
 
   async findSimilar(seed: SimilarSeed, limit: number): Promise<ExternalTrackSuggestion[]> {
@@ -55,6 +64,7 @@ export class MusicBrainzSimilarTrackProvider implements SimilarTrackProvider {
               releaseName = metadata.releaseName
             }
           } catch (error) {
+            this.onLookupError(error)
             if (error instanceof MusicBrainzError && error.code === 'RATE_LIMITED') {
               lookups = this.maxLookups
             }

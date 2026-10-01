@@ -93,4 +93,25 @@ describe('MusicBrainzSimilarTrackProvider', () => {
     expect(suggestions.map((s) => s.trackTitle)).toEqual(['Vapour Trail', 'Pearl'])
     expect(fetchImpl.mock.calls.filter(([url]) => String(url).includes('/recording/n')).length).toBe(1)
   })
+
+  it('reports a failed metadata lookup instead of swallowing it', async () => {
+    const fetchImpl = neighbourFetch(() => new Response('gone', { status: 404 }))
+    const onLookupError = vi.fn()
+    const provider = new MusicBrainzSimilarTrackProvider({ contact: 'ops@example.com', minRequestIntervalMs: 0, fetchImpl: fetchImpl as unknown as typeof fetch, onLookupError })
+    await provider.findSimilar(seed, 5)
+    expect(onLookupError).toHaveBeenCalledTimes(2)
+    expect(onLookupError.mock.calls[0]![0]).toMatchObject({ code: 'UNREACHABLE' })
+  })
+
+  it('warns with the error code only by default', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const fetchImpl = neighbourFetch(() => new Response('gone', { status: 404 }))
+      const provider = new MusicBrainzSimilarTrackProvider({ contact: 'ops@example.com', minRequestIntervalMs: 0, fetchImpl: fetchImpl as unknown as typeof fetch })
+      await provider.findSimilar(seed, 5)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('look-up failed'), 'UNREACHABLE')
+    } finally {
+      warn.mockRestore()
+    }
+  })
 })
