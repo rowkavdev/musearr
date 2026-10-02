@@ -28,6 +28,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- `MUSEARR_ENCRYPTION_KEY` is now checked when the API and worker start. It must be a base64-encoded
+  32-byte key (for example `openssl rand -base64 32`). A key that is not, including the
+  `.env.example` placeholder, stops startup with a clear message instead of failing at the end of setup.
+
 - Scope: acquisition (via Lidarr) and Musearr-managed Plex playlist writes are now
   opt-in capabilities rather than blanket non-goals. See the product blueprint
   decision record and `docs/PLAYLIST_GENERATION.md`.
