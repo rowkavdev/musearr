@@ -204,6 +204,20 @@ describe('dashboard', () => {
     expect(response.json()).toMatchObject({ code: 'UNAUTHENTICATED' })
   })
 
+  it.each(['artistName', 'trackTitle', 'albumTitle'])('rejects a NUL character in the scrobble %s before any query runs', async (field) => {
+    // Postgres text cannot hold NUL, so a database error would otherwise surface as a 500.
+    const database = vi.fn(async () => { throw new Error('invalid byte sequence for encoding "UTF8": 0x00') })
+    const app = createServer({ database: database as unknown as Database })
+    const scrobble = { artistName: 'Artist', trackTitle: 'Track', albumTitle: 'Album', occurredAt: '2026-10-01T10:00:00.000Z', [field]: 'bad\u0000value' }
+    await app.ready()
+    const headers = { cookie: `musearr_session=${app.jwt.sign({ sub: 'owner-id', role: 'owner' })}` }
+    const response = await app.inject({ method: 'POST', url: '/api/v1/imports/scrobbles', headers, payload: { scrobbles: [scrobble] } })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).toMatchObject({ code: 'INVALID_REQUEST' })
+    expect(database).not.toHaveBeenCalled()
+  })
+
   it('requires a local session before managing playlist proposals', async () => {
     const getRes = await createServer().inject({
       method: 'GET',
