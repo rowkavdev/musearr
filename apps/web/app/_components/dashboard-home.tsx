@@ -104,10 +104,14 @@ export function DashboardHome() {
         if (response.ok) {
           setOverview((await response.json()) as DashboardOverview)
           setViewState('ready')
-          const briefResponse = await briefRequest
-          if (briefResponse?.ok) {
-            const payload = (await briefResponse.json()) as { brief: DailyBrief | null }
-            setDailyBrief(payload.brief)
+          try {
+            const briefResponse = await briefRequest
+            if (briefResponse?.ok) {
+              const payload = (await briefResponse.json()) as { brief?: DailyBrief | null } | null
+              setDailyBrief(payload?.brief ?? null)
+            }
+          } catch {
+            // The daily brief is optional. A bad reply must not blank a dashboard that already loaded.
           }
           return
         }
