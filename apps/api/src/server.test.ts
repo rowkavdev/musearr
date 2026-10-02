@@ -504,6 +504,26 @@ describe('login input caps', () => {
   })
 })
 
+describe('client errors', () => {
+  it('answers a malformed or oversized body with 4xx, not 500', async () => {
+    const app = createServer()
+    const bad = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      headers: { origin: 'https://musearr.test', 'content-type': 'application/json' },
+      payload: '{not json',
+    })
+    const big = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      headers: { origin: 'https://musearr.test', 'content-type': 'application/json' },
+      payload: JSON.stringify({ username: 'owner', password: 'x'.repeat(2 * 1024 * 1024) }),
+    })
+    expect(bad.statusCode).toBe(400)
+    expect(big.statusCode).toBe(413)
+  })
+})
+
 describe('session lifetime', () => {
   it('issues a login token that expires with the 30 day cookie', async () => {
     const passwordHash = await hashPassword('correct horse battery')
