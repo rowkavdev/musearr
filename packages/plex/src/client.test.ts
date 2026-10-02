@@ -37,6 +37,13 @@ describe('normalisePlexBaseUrl', () => {
     expect(normalisePlexBaseUrl('http://[::ffff:192.168.1.20]:32400')).toBe('http://[::ffff:c0a8:114]:32400')
   })
 
+  it('rejects IPv4-compatible, translated and NAT64 forms of the metadata address (#192)', () => {
+    for (const url of ['http://[::169.254.169.254]/', 'http://[::ffff:0:169.254.169.254]/', 'http://[64:ff9b::169.254.169.254]/', 'http://[64:ff9b::100.100.100.200]:32400']) {
+      expect(() => normalisePlexBaseUrl(url), url).toThrow(PlexConnectionError)
+    }
+    expect(normalisePlexBaseUrl('http://[64:ff9b::192.168.1.20]:32400')).toBe('http://[64:ff9b::c0a8:114]:32400')
+  })
+
   it('maps Plex track pages while retaining source identifiers and optional playback fields', async () => {
     vi.stubGlobal(
       'fetch',
