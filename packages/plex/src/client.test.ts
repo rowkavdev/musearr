@@ -44,6 +44,14 @@ describe('normalisePlexBaseUrl', () => {
     expect(normalisePlexBaseUrl('http://[64:ff9b::192.168.1.20]:32400')).toBe('http://[64:ff9b::c0a8:114]:32400')
   })
 
+  it('rejects 6to4, ISATAP, Teredo, local-use NAT64 and site-local hosts (#194)', () => {
+    for (const url of ['http://[2002:a9fe:a9fe::1]/', 'http://[::5efe:169.254.169.254]/', 'http://[fe80::5efe:169.254.169.254]/', 'http://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/', 'http://[64:ff9b:1::a9fe:a9fe]/', 'http://[fec0::1]:32400']) {
+      expect(() => normalisePlexBaseUrl(url), url).toThrow(PlexConnectionError)
+    }
+    expect(normalisePlexBaseUrl('http://[2001:db8::5]:32400')).toBe('http://[2001:db8::5]:32400')
+    expect(normalisePlexBaseUrl('http://[fd12:3456::5]:32400')).toBe('http://[fd12:3456::5]:32400')
+  })
+
   it('maps Plex track pages while retaining source identifiers and optional playback fields', async () => {
     vi.stubGlobal(
       'fetch',
