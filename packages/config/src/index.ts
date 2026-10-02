@@ -97,7 +97,12 @@ const EnvironmentSchema = z.object({
   MUSEARR_DAILY_BRIEF_TIME: DailyBriefTimeSchema.default('08:00'),
   MUSEARR_DISCORD_WEBHOOK_URL: OptionalDiscordWebhookUrlSchema,
   MUSEARR_PLEX_WEBHOOK_SECRET: OptionalPlexWebhookSecretSchema,
-  MUSEARR_ENCRYPTION_KEY: z.string().min(1).optional(),
+  MUSEARR_ENCRYPTION_KEY: z
+    .string()
+    .refine((value) => Buffer.from(value, 'base64').byteLength === 32, {
+      message: 'MUSEARR_ENCRYPTION_KEY must be a base64-encoded 32-byte key.',
+    })
+    .optional(),
   MUSEARR_SESSION_SECRET: z.string().min(32).optional(),
   // Local AI is optional and off by default. When disabled, every ranking and
   // playlist decision stays fully deterministic.
