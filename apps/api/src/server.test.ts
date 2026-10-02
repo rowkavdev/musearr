@@ -234,6 +234,30 @@ describe('dashboard', () => {
     expect(database).not.toHaveBeenCalled()
   })
 
+  it('rejects a NUL character in the Lidarr root folder before any network call or query', async () => {
+    // Postgres text cannot hold NUL, so saving it would otherwise fail in the upsert with a 500.
+    const database = vi.fn(async () => { throw new Error('invalid byte sequence for encoding "UTF8": 0x00') })
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('unexpected network call'))
+    try {
+      const app = createServer({ database: database as unknown as Database, encryptionKey: Buffer.alloc(32, 1).toString('base64') })
+      await app.ready()
+      const headers = { cookie: `musearr_session=${app.jwt.sign({ sub: 'owner-id', role: 'owner' })}` }
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/settings/lidarr',
+        headers,
+        payload: { baseUrl: 'http://lidarr.local:8686', apiKey: 'test-api-key-long', rootFolderPath: '/music\u0000/x' },
+      })
+
+      expect(response.statusCode).toBe(400)
+      expect(response.json()).toMatchObject({ code: 'INVALID_REQUEST' })
+      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(database).not.toHaveBeenCalled()
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
   it('requires a local session before managing playlist proposals', async () => {
     const getRes = await createServer().inject({
       method: 'GET',
