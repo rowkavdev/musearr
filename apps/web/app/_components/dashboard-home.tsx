@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 
 import { readDailyBrief } from './daily-brief-reply'
+import { queueLibrarySync } from './queue-sync'
 
 type Recommendation = {
   runId: string
@@ -382,6 +383,7 @@ function ListeningDashboard({
 }
 
 function SyncStateCard({ sync }: { sync: DashboardOverview['sync'] }) {
+  const [syncRequest, setSyncRequest] = useState<'idle' | 'queueing' | 'queued' | 'signed_out' | 'failed'>('idle')
   const isActive = sync.status === 'queued' || sync.status === 'running'
   const isFailure = sync.status === 'failed'
 
@@ -399,6 +401,22 @@ function SyncStateCard({ sync }: { sync: DashboardOverview['sync'] }) {
       {sync.lastCompletedAt ? (
         <p className="sync-state-card__timestamp">Last completed {formatDate(sync.lastCompletedAt)}</p>
       ) : null}
+      {!isActive ? (
+        <button
+          className="secondary-button"
+          disabled={syncRequest === 'queueing' || syncRequest === 'queued'}
+          onClick={async () => {
+            setSyncRequest('queueing')
+            setSyncRequest(await queueLibrarySync(() => fetch('/api/v1/sync', { method: 'POST' })))
+          }}
+          type="button"
+        >
+          {syncRequest === 'queueing' ? 'Queueing…' : syncRequest === 'queued' ? 'Sync queued' : 'Sync library now'}
+        </button>
+      ) : null}
+      {syncRequest === 'queued' ? <p className="sync-state-card__timestamp">Sync queued. Refresh in a minute to see progress.</p> : null}
+      {syncRequest === 'signed_out' ? <p className="sync-state-card__timestamp">Sign in again to start a sync.</p> : null}
+      {syncRequest === 'failed' ? <p className="sync-state-card__timestamp">Musearr could not queue a sync. Try again shortly.</p> : null}
     </article>
   )
 }
@@ -416,14 +434,14 @@ function syncStatusLabel(status: DashboardOverview['sync']['status']): string {
 
 function syncSummary(sync: DashboardOverview['sync']): string {
   if (sync.status === 'failed') {
-    return sync.errorSummary ?? 'The last library sync did not finish. Check your Plex connection, then use the existing sync control to try again.'
+    return sync.errorSummary ?? 'The last library sync did not finish. Check your Plex connection, then sync again.'
   }
 
   switch (sync.status) {
     case 'queued': return 'Your library sync is waiting to start. This dashboard will refresh when it finishes.'
     case 'running': return 'Your library is being reconciled now. Keep this page open or return later for refreshed results.'
     case 'completed': return sync.lastCompletedAt ? 'Your library mirror is current. Scheduled reconciliation keeps it fresh.' : 'Your library mirror is current.'
-    case 'cancelled': return 'The last library sync was cancelled. Use the existing sync control when you are ready to run it again.'
+    case 'cancelled': return 'The last library sync was cancelled. Sync again when you are ready.'
     case 'not_started': return 'No library sync has started yet. Your library and listening insights will appear after the first sync.'
   }
 }
