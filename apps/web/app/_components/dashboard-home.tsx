@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 
 import { readDailyBrief } from './daily-brief-reply'
 import { queueLibrarySync } from './queue-sync'
+import { readOverviewRefresh, shouldPollSync, SYNC_POLL_INTERVAL_MS } from './sync-poll'
 
 type Recommendation = {
   runId: string
@@ -130,6 +131,26 @@ export function DashboardHome() {
     void loadDashboard()
     return () => controller.abort()
   }, [])
+
+  const syncStatus = viewState === 'ready' ? overview?.sync.status : undefined
+  useEffect(() => {
+    if (!shouldPollSync(syncStatus)) return
+    const controller = new AbortController()
+    const timer = window.setInterval(async () => {
+      try {
+        const next = await readOverviewRefresh<DashboardOverview>(
+          await fetch('/api/v1/dashboard', { signal: controller.signal }),
+        )
+        if (next && !controller.signal.aborted) setOverview(next)
+      } catch {
+        // Keep showing the last good overview; the next tick tries again.
+      }
+    }, SYNC_POLL_INTERVAL_MS)
+    return () => {
+      window.clearInterval(timer)
+      controller.abort()
+    }
+  }, [syncStatus])
 
   async function generateDailyMix() {
     setGenerationState('queueing')
