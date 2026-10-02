@@ -12,6 +12,10 @@ describe('library sync failure sanitisation', () => {
     [new PlexConnectionError('UNAUTHENTICATED', 'Plex rejected the supplied token.'), 'authentication', false],
     [new PlexConnectionError('INVALID_RESPONSE', 'Plex returned an unreadable response.'), 'upstream_response', true],
     ['token=secret-value', 'unknown', true],
+    // A body that is not JSON is an odd answer from the server, not a rejected login.
+    [new SyntaxError('Unexpected token < in JSON at position 0'), 'upstream_response', true],
+    // A failed database write mentioning a token is not a Plex authentication failure.
+    [new Error('invalid input syntax for type uuid: bad token'), 'unknown', true],
   ] as const)('persists only stable safe details for %s', (error, classification, retryable) => {
     const failure = sanitiseSyncFailure(error)
 
