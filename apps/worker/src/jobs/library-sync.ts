@@ -84,12 +84,16 @@ export function sanitiseSyncFailure(error: unknown): SanitisedSyncFailure {
     }
     return { classification: 'upstream_response', summary: 'Plex returned an unexpected response.', retryable: true }
   }
+  // A body that is not JSON is an unexpected answer from the server, not a rejected login.
+  if (error instanceof SyntaxError) {
+    return { classification: 'upstream_response', summary: 'Plex returned an unexpected response.', retryable: true }
+  }
   const message = error instanceof Error ? error.message.toLowerCase() : ''
 
   if (message.includes('encryption') || message.includes('configuration') || message.includes('required before')) {
     return { classification: 'configuration', summary: 'Sync configuration needs attention.', retryable: false }
   }
-  if (message.includes('unauthor') || message.includes('forbidden') || message.includes('credential') || message.includes('token')) {
+  if (message.includes('unauthor') || message.includes('forbidden') || message.includes('credential') || (message.includes('plex') && message.includes('token'))) {
     return { classification: 'authentication', summary: 'Plex authentication was rejected.', retryable: false }
   }
   if (message.includes('timeout') || message.includes('network') || message.includes('connect') || message.includes('unavailable')) {
