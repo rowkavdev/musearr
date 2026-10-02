@@ -323,10 +323,22 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   })
 
   app.setErrorHandler((error, request, reply) => {
-    request.log.error(error)
     if (typeof error === 'object' && error !== null && 'validation' in error) {
+      request.log.error(error)
       return sendProblem(reply, 400, 'INVALID_REQUEST', 'One or more fields need to be corrected.')
     }
+    // Fastify's own request errors (bad JSON, body too large, wrong content type) are the client's.
+    const clientStatus = (error as { statusCode?: unknown }).statusCode
+    if (typeof clientStatus === 'number' && clientStatus >= 400 && clientStatus < 500) {
+      request.log.warn({ code: (error as { code?: unknown }).code }, 'Rejected a malformed request')
+      return sendProblem(
+        reply,
+        clientStatus,
+        clientStatus === 413 ? 'PAYLOAD_TOO_LARGE' : 'INVALID_REQUEST',
+        clientStatus === 413 ? 'That request is too large.' : 'The request could not be read.',
+      )
+    }
+    request.log.error(error)
     return sendProblem(
       reply,
       500,
