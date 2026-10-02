@@ -188,10 +188,13 @@ export const DailyBriefResponseSchema = z.object({
   brief: DailyBriefSchema.nullable(),
 })
 
+// Postgres text cannot hold NUL, so reject it here instead of failing in a query.
+const noNul = (value: string) => !value.includes('\u0000')
+
 export const ScrobbleItemSchema = z.object({
-  artistName: z.string().trim().min(1),
-  trackTitle: z.string().trim().min(1),
-  albumTitle: z.string().trim().optional(),
+  artistName: z.string().trim().min(1).refine(noNul),
+  trackTitle: z.string().trim().min(1).refine(noNul),
+  albumTitle: z.string().trim().refine(noNul).optional(),
   occurredAt: z.string().datetime(),
 })
 
