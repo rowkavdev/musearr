@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { noNul } from './text.js'
 
 /**
  * A generated playlist is an eventually-consistent object. Items that already
@@ -33,7 +34,7 @@ export const PlaylistGenerationStatusSchema = z.enum([
 
 export const GeneratePlaylistRequestSchema = z.object({
   seedTrackId: z.string().uuid(),
-  name: z.string().trim().min(1).max(120).optional(),
+  name: z.string().trim().min(1).max(120).refine(noNul).optional(),
   targetSize: z.number().int().min(5).max(100).default(25),
   /** Ask Lidarr to acquire suggestions that are not already in the library. */
   acquireMissing: z.boolean().default(false),

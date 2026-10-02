@@ -218,6 +218,22 @@ describe('dashboard', () => {
     expect(database).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['/api/v1/playlists/generate', { seedTrackId: '9ad3649a-a78f-4aea-99dc-473c7c1c5501', name: 'bad\u0000name' }],
+    ['/api/v1/playlists/proposals', { title: 'bad\u0000title' }],
+  ])('rejects a NUL character in the %s name or title before any query runs', async (url, payload) => {
+    // Postgres text cannot hold NUL, so a database error would otherwise surface as a 500.
+    const database = vi.fn(async () => { throw new Error('invalid byte sequence for encoding "UTF8": 0x00') })
+    const app = createServer({ database: database as unknown as Database, jobQueue: { send: vi.fn() } })
+    await app.ready()
+    const headers = { cookie: `musearr_session=${app.jwt.sign({ sub: 'owner-id', role: 'owner' })}` }
+    const response = await app.inject({ method: 'POST', url, headers, payload })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).toMatchObject({ code: 'INVALID_REQUEST' })
+    expect(database).not.toHaveBeenCalled()
+  })
+
   it('requires a local session before managing playlist proposals', async () => {
     const getRes = await createServer().inject({
       method: 'GET',
