@@ -19,3 +19,13 @@ export async function readOverviewRefresh<T extends { sync: unknown }>(
     return null
   }
 }
+
+// Skip a tick while the previous poll is still out or nobody can see the page.
+export function shouldPollNow(inFlight: boolean, hidden: boolean): boolean {
+  return !inFlight && !hidden
+}
+
+// A 401 mid-poll means the session ended; the card would otherwise sit on stale data.
+export function pollSessionEnded(reply: { status: number }): boolean {
+  return reply.status === 401
+}

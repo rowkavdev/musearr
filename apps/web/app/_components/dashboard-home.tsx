@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 
 import { readDailyBrief } from './daily-brief-reply'
 import { queueLibrarySync } from './queue-sync'
-import { readOverviewRefresh, shouldPollSync, SYNC_POLL_INTERVAL_MS } from './sync-poll'
+import { pollSessionEnded, readOverviewRefresh, shouldPollNow, shouldPollSync, SYNC_POLL_INTERVAL_MS } from './sync-poll'
 
 type Recommendation = {
   runId: string
@@ -136,14 +136,23 @@ export function DashboardHome() {
   useEffect(() => {
     if (!shouldPollSync(syncStatus)) return
     const controller = new AbortController()
+    let inFlight = false
     const timer = window.setInterval(async () => {
+      if (!shouldPollNow(inFlight, document.hidden)) return
+      inFlight = true
       try {
-        const next = await readOverviewRefresh<DashboardOverview>(
-          await fetch('/api/v1/dashboard', { signal: controller.signal }),
-        )
+        const reply = await fetch('/api/v1/dashboard', { signal: controller.signal })
+        if (controller.signal.aborted) return
+        if (pollSessionEnded(reply)) {
+          setViewState('signed_out')
+          return
+        }
+        const next = await readOverviewRefresh<DashboardOverview>(reply)
         if (next && !controller.signal.aborted) setOverview(next)
       } catch {
         // Keep showing the last good overview; the next tick tries again.
+      } finally {
+        inFlight = false
       }
     }, SYNC_POLL_INTERVAL_MS)
     return () => {
