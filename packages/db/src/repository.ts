@@ -1964,9 +1964,11 @@ function sanitiseSyncFailure(error: unknown): string {
 
 function classifySyncFailure(error: unknown): SyncFailureClassification {
   if (hasSyncFailureClassification(error)) return error.classification
+  // A body that is not JSON is an unexpected answer from the server, not a rejected login.
+  if (error instanceof SyntaxError) return 'upstream_response'
   const message = error instanceof Error ? error.message.toLowerCase() : ''
   if (message.includes('encryption') || message.includes('configuration') || message.includes('required before')) return 'configuration'
-  if (message.includes('unauthor') || message.includes('forbidden') || message.includes('credential') || message.includes('token')) return 'authentication'
+  if (message.includes('unauthor') || message.includes('forbidden') || message.includes('credential') || (message.includes('plex') && message.includes('token'))) return 'authentication'
   if (message.includes('timeout') || message.includes('network') || message.includes('connect') || message.includes('unavailable')) return 'upstream_unavailable'
   if (message.includes('plex') || message.includes('response') || message.includes('parse')) return 'upstream_response'
   return 'unknown'
