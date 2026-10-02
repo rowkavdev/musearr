@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { noNul } from './text.js'
 
 /**
  * Lidarr is an optional, owner-configured acquisition backend. Musearr never
@@ -9,7 +10,7 @@ import { z } from 'zod'
 export const LidarrConnectionRequestSchema = z.object({
   baseUrl: z.string().trim().url().max(2048),
   apiKey: z.string().trim().min(8).max(512),
-  rootFolderPath: z.string().trim().min(1).max(1024).optional(),
+  rootFolderPath: z.string().trim().min(1).max(1024).refine(noNul).optional(),
   qualityProfileId: z.number().int().positive().optional(),
   metadataProfileId: z.number().int().positive().optional(),
 })
