@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readOverviewRefresh, shouldPollSync } from './sync-poll'
+import { pollSessionEnded, readOverviewRefresh, shouldPollNow, shouldPollSync } from './sync-poll'
 
 describe('shouldPollSync', () => {
   it.each([['queued', true], ['running', true], ['completed', false], ['failed', false], ['cancelled', false], ['not_started', false], [undefined, false]] as const)(
@@ -19,5 +19,20 @@ describe('readOverviewRefresh', () => {
     expect(await readOverviewRefresh(ok(async () => { throw new SyntaxError('x') }))).toBeNull()
     expect(await readOverviewRefresh(ok(async () => null))).toBeNull()
     expect(await readOverviewRefresh(ok(async () => ({})))).toBeNull()
+  })
+})
+
+describe('shouldPollNow', () => {
+  it.each([[false, false, true], [true, false, false], [false, true, false], [true, true, false]] as const)(
+    'inFlight=%s hidden=%s -> %s',
+    (inFlight, hidden, expected) => expect(shouldPollNow(inFlight, hidden)).toBe(expected),
+  )
+})
+
+describe('pollSessionEnded', () => {
+  it('is true only for 401', () => {
+    expect(pollSessionEnded({ status: 401 })).toBe(true)
+    expect(pollSessionEnded({ status: 500 })).toBe(false)
+    expect(pollSessionEnded({ status: 200 })).toBe(false)
   })
 })
