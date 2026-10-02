@@ -171,9 +171,10 @@ export function normalisePlexBaseUrl(rawUrl: string): string {
 // are the usual SSRF targets (#83). LAN, Docker host and loopback stay allowed.
 function isLinkLocalHost(rawHost: string): boolean {
   let host = rawHost.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
-  // WHATWG URL rewrites ::ffff:a.b.c.d to two hex groups, e.g. ::ffff:a9fe:a9fe.
-  // Decode it back so the IPv4 checks below apply to mapped addresses too.
-  const mapped = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
+  // WHATWG URL rewrites an embedded IPv4 to two hex groups, e.g. ::ffff:a9fe:a9fe.
+  // Decode it back so the IPv4 checks below apply to mapped (::ffff:), translated
+  // (::ffff:0:), IPv4-compatible (::) and NAT64 (64:ff9b::) addresses too (#192).
+  const mapped = host.match(/^(?:::ffff:(?:0:)?|::|64:ff9b::)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
   if (mapped) {
     const high = parseInt(mapped[1] as string, 16)
     const low = parseInt(mapped[2] as string, 16)
