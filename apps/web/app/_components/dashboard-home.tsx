@@ -3,6 +3,8 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 
+import { readDailyBrief } from './daily-brief-reply'
+
 type Recommendation = {
   runId: string
   createdAt: string
@@ -104,15 +106,7 @@ export function DashboardHome() {
         if (response.ok) {
           setOverview((await response.json()) as DashboardOverview)
           setViewState('ready')
-          try {
-            const briefResponse = await briefRequest
-            if (briefResponse?.ok) {
-              const payload = (await briefResponse.json()) as { brief?: DailyBrief | null } | null
-              setDailyBrief(payload?.brief ?? null)
-            }
-          } catch {
-            // The daily brief is optional. A bad reply must not blank a dashboard that already loaded.
-          }
+          setDailyBrief(await readDailyBrief<DailyBrief>(briefRequest))
           return
         }
         if (response.status !== 401) {
