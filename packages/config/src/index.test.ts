@@ -46,4 +46,17 @@ describe('getConfig', () => {
     expect(() => getConfig({ MUSEARR_DISCORD_WEBHOOK_URL: 'https://example.test/hooks/123' })).toThrow()
     expect(() => getConfig({ MUSEARR_DISCORD_WEBHOOK_URL: 'https://user:pass@discord.com/api/webhooks/123/token' })).toThrow()
   })
+
+  it('rejects an encryption key that is not a base64 32-byte value', () => {
+    const hex = 'a'.repeat(64)
+    for (const bad of ['short', hex, Buffer.alloc(16).toString('base64'), Buffer.alloc(48).toString('base64')]) {
+      expect(() => getConfig({ MUSEARR_ENCRYPTION_KEY: bad })).toThrow(/MUSEARR_ENCRYPTION_KEY/)
+    }
+  })
+
+  it('accepts a base64 32-byte encryption key and an unset one', () => {
+    const key = Buffer.alloc(32, 7).toString('base64')
+    expect(getConfig({ MUSEARR_ENCRYPTION_KEY: key }).MUSEARR_ENCRYPTION_KEY).toBe(key)
+    expect(getConfig({}).MUSEARR_ENCRYPTION_KEY).toBeUndefined()
+  })
 })
