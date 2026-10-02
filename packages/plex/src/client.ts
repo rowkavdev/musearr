@@ -187,7 +187,7 @@ function isLinkLocalHost(rawHost: string): boolean {
   // 6to4 (2002::/16) and Teredo (2001:0::/32) tunnel an IPv4 address, ISATAP
   // ends in ::5efe:a.b.c.d, 64:ff9b:1::/48 is local-use NAT64 and fec0::/10 is
   // deprecated site-local. None is a Plex server address (#194).
-  if (/^(2002|2001:0{1,4}|64:ff9b:0{0,3}1):/.test(host) || /:5efe:[0-9a-f]{1,4}:[0-9a-f]{1,4}$/.test(host)) return true
+  if (/^(2002|2001:(?:0{1,4})?|64:ff9b:0{0,3}1):/.test(host) || /:5efe:[0-9a-f]{1,4}:[0-9a-f]{1,4}$/.test(host)) return true
   return /^fe[89abcdef][0-9a-f]:/.test(host)
 }
 
