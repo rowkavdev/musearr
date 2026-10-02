@@ -184,7 +184,11 @@ function isLinkLocalHost(rawHost: string): boolean {
   // Alibaba Cloud and AWS IPv6 metadata endpoints.
   if (host === '100.100.100.200' || host === 'fd00:ec2::254') return true
   if (/^169\.254\.\d{1,3}\.\d{1,3}$/.test(host)) return true
-  return /^fe[89ab][0-9a-f]:/.test(host)
+  // 6to4 (2002::/16) and Teredo (2001:0::/32) tunnel an IPv4 address, ISATAP
+  // ends in ::5efe:a.b.c.d, 64:ff9b:1::/48 is local-use NAT64 and fec0::/10 is
+  // deprecated site-local. None is a Plex server address (#194).
+  if (/^(2002|2001:0{1,4}|64:ff9b:0{0,3}1):/.test(host) || /:5efe:[0-9a-f]{1,4}:[0-9a-f]{1,4}$/.test(host)) return true
+  return /^fe[89abcdef][0-9a-f]:/.test(host)
 }
 
 export class PlexClient {
