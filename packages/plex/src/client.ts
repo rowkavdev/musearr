@@ -330,7 +330,7 @@ export class PlexClient {
 
   private async librarySections(): Promise<PlexLibrarySection[]> {
     const payload = await this.request<PlexSectionsResponse>('/library/sections')
-    return (payload.MediaContainer?.Directory ?? [])
+    return plexRows(payload.MediaContainer?.Directory)
       .filter((section) => section.type === 'artist' && section.key !== undefined && section.title)
       .map((section) => ({
         id: String(section.key),
