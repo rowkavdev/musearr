@@ -565,8 +565,8 @@ function normaliseTrack(
         year: integerOrNull(item.parentYear),
         thumbKey: item.parentThumb ?? null,
       },
-      genres: (item.Genre ?? [])
-        .map((genre) => genre.tag?.trim())
+      genres: (Array.isArray(item.Genre) ? item.Genre : [])
+        .map((genre) => (typeof genre?.tag === 'string' ? genre.tag.trim() : undefined))
         .filter((genre): genre is string => Boolean(genre)),
     },
   ]
