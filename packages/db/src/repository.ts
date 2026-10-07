@@ -1597,6 +1597,7 @@ export async function failDiscordDailyBriefDelivery(
 }
 
 export async function getDashboardOverview(database: Database, userId: string): Promise<DashboardOverview> {
+  await reapStaleSyncRuns(database)
   const [libraryRows, listeningRows, artistRows, genreRows, syncRows, dailyMix] = await Promise.all([
     database<
       Array<{
