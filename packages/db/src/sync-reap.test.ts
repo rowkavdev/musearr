@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  getDashboardOverview,
   getResumableSyncProgress,
   INTERRUPTED_SYNC_SUMMARY,
   listSyncRuns,
@@ -49,5 +50,14 @@ describe('reapStaleSyncRuns', () => {
     const resume = recordingDatabase()
     await getResumableSyncProgress(resume.database, 'section-1')
     expect(resume.calls[0]?.sql).toContain('UPDATE sync_runs')
+  })
+
+  it('runs before building the dashboard overview', async () => {
+    // The dashboard sync card polls only getDashboardOverview, so a run orphaned
+    // by a worker crash otherwise shows as running forever.
+    const { database, calls } = recordingDatabase()
+    await getDashboardOverview(database, 'user-1')
+    expect(calls[0]?.sql).toContain("UPDATE sync_runs")
+    expect(calls[0]?.sql).toContain("SET status = 'failed'")
   })
 })

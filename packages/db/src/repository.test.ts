@@ -44,6 +44,9 @@ describe('getDashboardOverview', () => {
           },
         ]
       }
+      if (query.includes('UPDATE sync_runs')) {
+        return []
+      }
       if (query.includes('FROM sync_runs')) {
         return [
           {
