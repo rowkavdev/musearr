@@ -447,8 +447,9 @@ export async function setPlaylistGenerationStatus(
 export async function getGenerationIdsAwaitingAcquisition(database: Database): Promise<string[]> {
   const rows = await database<Array<{ id: string }>>`
     SELECT id FROM playlist_generations
-    WHERE status IN ('awaiting_acquisition', 'ready', 'publishing')
-    ORDER BY created_at ASC
+    WHERE status IN ('awaiting_acquisition', 'publishing')
+      OR (status = 'ready' AND publish_to_plex)
+    ORDER BY updated_at ASC
     LIMIT 50
   `
   return rows.map((row) => row.id)
