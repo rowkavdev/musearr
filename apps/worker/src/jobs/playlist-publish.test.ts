@@ -299,3 +299,16 @@ describe('publishPlaylistToPlex', () => {
     expect(db.linkManagedPlexPlaylist).not.toHaveBeenCalled()
   })
 })
+
+it('recreates a deleted linked playlist even when every track was already published', async () => {
+  db.getPlaylistGenerationJobContext.mockResolvedValue(context({ plexPlaylistRatingKey: '9001', status: 'published' }))
+  plex.audioPlaylists.mockResolvedValue([])
+  db.getPublishableGenerationItems.mockImplementation(async (_db: unknown, _id: string, includePublished?: boolean) =>
+    includePublished ? [{ id: 'item-1', plexRatingKey: '1001' }, { id: 'item-2', plexRatingKey: '1002' }] : [],
+  )
+  plex.createAudioPlaylist.mockResolvedValue({ plexRatingKey: '9002', title: 'Late Night' })
+  const outcome = await publishPlaylistToPlex(database, config, 'gen-1')
+  expect(plex.createAudioPlaylist).toHaveBeenCalledWith('machine-1', 'Late Night', ['1001', '1002'])
+  expect(db.linkManagedPlexPlaylist).toHaveBeenCalledWith(database, expect.objectContaining({ plexRatingKey: '9002' }))
+  expect(outcome).toEqual({ created: true, added: 2, status: 'published' })
+})
