@@ -266,6 +266,7 @@ export class LidarrClient {
       if (page === 50) throw new LidarrConnectionError('INVALID_RESPONSE', 'Lidarr queue exceeds the 10000-record paging limit.')
     }
     return records.flatMap((raw) => {
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return []
       const id = integerOrNull(raw.id)
       if (id === null) {
         return []
