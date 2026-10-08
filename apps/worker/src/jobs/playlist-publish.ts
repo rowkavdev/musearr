@@ -71,7 +71,7 @@ export async function publishPlaylistToPlex(
   let created = false
 
   try {
-    if (ratingKeys.length > 0) {
+    if (ratingKeys.length > 0 || plexPlaylistRatingKey) {
       ;({ ratingKey: plexPlaylistRatingKey, items } = await resolveTargetPlaylist(
         database,
         client,
