@@ -39,7 +39,7 @@ export class OllamaLocalAiProvider implements LocalAiProvider {
         undefined,
         5_000,
         async (response) => {
-          await response.body?.cancel();
+          cancelQuietly(response.body);
           return response.ok;
         },
       );
@@ -114,12 +114,17 @@ export class OllamaLocalAiProvider implements LocalAiProvider {
   }
 }
 
+// Request cleanup without waiting for it or masking the operation's result.
+function cancelQuietly(target: { cancel(): Promise<void> } | null): void {
+  try { void Promise.resolve(target?.cancel()).catch(() => {}); } catch {}
+}
+
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 
 async function readBoundedResponse(response: Response): Promise<string> {
   const declared = Number(response.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {
-    await response.body?.cancel().catch(() => {});
+    cancelQuietly(response.body);
     throw new LocalAiUnavailableError(
       "Ollama response exceeds the 16 MiB limit.",
     );
@@ -135,7 +140,7 @@ async function readBoundedResponse(response: Response): Promise<string> {
       if (done) break;
       bytes += value.byteLength;
       if (bytes > MAX_RESPONSE_BYTES) {
-        await reader.cancel().catch(() => {});
+        cancelQuietly(reader);
         throw new LocalAiUnavailableError(
           "Ollama response exceeds the 16 MiB limit.",
         );
@@ -151,7 +156,7 @@ async function readBoundedResponse(response: Response): Promise<string> {
 
 async function readPayload(response: Response): Promise<unknown> {
   if (!response.ok) {
-    await response.body?.cancel().catch(() => {});
+    cancelQuietly(response.body);
     throw new LocalAiUnavailableError(
       `Ollama returned HTTP ${response.status}.`,
     );
