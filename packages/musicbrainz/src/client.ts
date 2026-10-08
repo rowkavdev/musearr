@@ -64,7 +64,7 @@ export class MusicBrainzClient {
   private readonly minRequestIntervalMs: number;
   private readonly fetchImpl: typeof fetch;
   private chain: Promise<unknown> = Promise.resolve();
-  private lastRequestAt = 0;
+  private lastRequestAt = -Infinity;
 
   constructor(options: MusicBrainzClientOptions) {
     const appName = options.appName ?? "Musearr";
@@ -235,11 +235,11 @@ export class MusicBrainzClient {
   private schedule<T>(task: () => Promise<T>): Promise<T> {
     const run = this.chain.then(async () => {
       const wait =
-        this.minRequestIntervalMs - (Date.now() - this.lastRequestAt);
+        this.minRequestIntervalMs - (performance.now() - this.lastRequestAt);
       if (wait > 0) {
         await delay(wait);
       }
-      this.lastRequestAt = Date.now();
+      this.lastRequestAt = performance.now();
       return task();
     });
     this.chain = run.then(
