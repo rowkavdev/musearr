@@ -15,7 +15,12 @@ export class DiscordDeliveryError extends Error {
 
 export function formatDiscordDailyBrief(brief: DiscordBriefContent): string {
   const cards = brief.cards.slice(0, 4).map((card) => `**${card.title}**\n${card.body}`)
-  return ['🎧 **Musearr daily brief**', `**${brief.headline}**`, brief.summary, ...cards].join('\n\n').slice(0, 1_900)
+  const text = ['🎧 **Musearr daily brief**', `**${brief.headline}**`, brief.summary, ...cards].join('\n\n')
+  let end = 1_900
+  // Keep a UTF-16 surrogate pair together at the content limit.
+  if (text.charCodeAt(end - 1) >= 0xd800 && text.charCodeAt(end - 1) <= 0xdbff &&
+      text.charCodeAt(end) >= 0xdc00 && text.charCodeAt(end) <= 0xdfff) end -= 1
+  return text.slice(0, end)
 }
 
 export async function deliverDiscordDailyBrief(
