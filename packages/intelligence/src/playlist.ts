@@ -272,7 +272,7 @@ function eraProximity(seedYear: number | null, trackYear: number | null): number
 }
 
 function trackKey(artistName: string, trackTitle: string): string {
-  return `${normaliseGenre(artistName)}::${normaliseGenre(trackTitle)}`
+  return JSON.stringify([normaliseGenre(artistName), normaliseGenre(trackTitle)])
 }
 
 function normaliseGenre(value: string): string {

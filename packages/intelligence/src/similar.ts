@@ -58,7 +58,7 @@ export class CompositeSimilarTrackProvider implements SimilarTrackProvider {
         if (!artist || !title) {
           continue
         }
-        const key = `${artist.toLocaleLowerCase()}::${title.toLocaleLowerCase()}`
+        const key = JSON.stringify([artist.toLocaleLowerCase(), title.toLocaleLowerCase()])
         if (seen.has(key)) {
           continue
         }
