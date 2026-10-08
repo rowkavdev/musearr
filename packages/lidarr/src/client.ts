@@ -397,7 +397,7 @@ function stringOr(value: unknown, fallback: string): string {
 }
 
 function integerOrNull(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : null
+  return typeof value === 'number' && Number.isSafeInteger(value) ? value : null
 }
 
 // Caps decoded bytes too: Content-Length can be missing, wrong, or compressed.
