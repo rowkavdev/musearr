@@ -47,7 +47,7 @@ export function encryptSecret(plaintext: string, encodedKey: string): string {
 
 export function decryptSecret(ciphertext: string, encodedKey: string): string {
   const [version, ivValue, tagValue, encryptedValue] = ciphertext.split('.')
-  if (version !== 'v1' || !ivValue || !tagValue || !encryptedValue) {
+  if (version !== 'v1' || !ivValue || !tagValue || encryptedValue === undefined) {
     throw new Error('The encrypted value is malformed or uses an unsupported version.')
   }
 
