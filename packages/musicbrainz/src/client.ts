@@ -171,7 +171,7 @@ export class MusicBrainzClient {
     const artistName = artistCredit
       .map(
         (credit) =>
-          `${optionalString(credit.name) ?? ""}${optionalString(credit.joinphrase) ?? ""}`,
+          `${optionalString(credit.name) ?? ""}${typeof credit.joinphrase === "string" ? credit.joinphrase : ""}`,
       )
       .join("")
       .trim();
