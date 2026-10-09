@@ -79,6 +79,14 @@ describe('requestPlaylistAcquisitions transient errors', () => {
     expect(db.setPlaylistGenerationStatus).toHaveBeenCalledWith(database, 'gen-1', 'awaiting_acquisition')
   })
 
+  it('leaves an unauthenticated lookup pending for retry after the key is fixed', async () => {
+    lidarr.lookupArtist.mockRejectedValue(new LidarrConnectionError('UNAUTHENTICATED', 'Lidarr rejected the supplied API key'))
+    db.getGenerationItemStateCounts.mockResolvedValue({ pending: 1, requested: 0, downloading: 0, imported: 0, unavailable: 0 })
+    expect(await requestPlaylistAcquisitions(database, config, 'gen-1')).toEqual({ requested: 0, unavailable: 0 })
+    expect(db.updateGenerationItemAcquisition).not.toHaveBeenCalled()
+    expect(db.setPlaylistGenerationStatus).toHaveBeenCalledWith(database, 'gen-1', 'awaiting_acquisition')
+  })
+
   it('still marks a confirmed lookup miss unavailable', async () => {
     lidarr.lookupArtist.mockResolvedValue([])
     expect(await requestPlaylistAcquisitions(database, config, 'gen-1')).toEqual({ requested: 0, unavailable: 1 })
