@@ -30,6 +30,7 @@ beforeEach(() => {
   db.getGenerationItemStateCounts.mockResolvedValue({ pending: 1, requested: 0, downloading: 0, imported: 0, unavailable: 0 })
   db.getLidarrConnection.mockResolvedValue({ baseUrl: 'http://lidarr.local', apiKeyCiphertext: encryptSecret('test-key', encryptionKey) })
   db.matchGenerationItemsInLibrary.mockResolvedValue(0)
+  db.getPlaylistGenerationJobContext.mockResolvedValue({ acquireMissing: true, publishToPlex: false })
 })
 
 it('schedules a retry for pending items in the ten-minute reconciliation sweep', async () => {
@@ -37,6 +38,15 @@ it('schedules a retry for pending items in the ten-minute reconciliation sweep',
     scanned: 1, matched: 0, readyToPublish: [], readyToAcquire: ['gen-1'],
   })
   expect(db.setPlaylistGenerationStatus).toHaveBeenCalledWith(database, 'gen-1', 'awaiting_acquisition')
+})
+
+it('leaves pending items alone when the generation did not opt into acquisition', async () => {
+  db.getPlaylistGenerationJobContext.mockResolvedValue({ acquireMissing: false, publishToPlex: false })
+  expect(await reconcilePlaylistGenerations(database, config)).toEqual({
+    scanned: 1, matched: 0, readyToPublish: [], readyToAcquire: [],
+  })
+  expect(db.setPlaylistGenerationStatus).toHaveBeenCalledWith(database, 'gen-1', 'ready')
+  expect(db.setPlaylistGenerationStatus).not.toHaveBeenCalledWith(database, 'gen-1', 'awaiting_acquisition')
 })
 
 const item = { id: 'item', lidarrArtistId: 5, lidarrAlbumId: null }

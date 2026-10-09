@@ -56,16 +56,18 @@ export async function reconcilePlaylistGenerations(
     // Give the Plex mirror one last chance before closing a stalled acquisition.
     await expireStalledGenerationItems(database, generationId)
 
+    const context = await getPlaylistGenerationJobContext(database, generationId)
     const counts = await getGenerationItemStateCounts(database, generationId)
-    const inFlight = counts.pending + counts.requested + counts.downloading + counts.imported
+    // Pending gap items are only waiting for acquisition when the generation opted in.
+    const pending = context?.acquireMissing ? counts.pending : 0
+    const inFlight = pending + counts.requested + counts.downloading + counts.imported
     if (inFlight > 0) {
-      if (counts.pending > 0 && client) readyToAcquire.push(generationId)
+      if (pending > 0 && client) readyToAcquire.push(generationId)
       await setPlaylistGenerationStatus(database, generationId, 'awaiting_acquisition')
       continue
     }
 
     await setPlaylistGenerationStatus(database, generationId, 'ready')
-    const context = await getPlaylistGenerationJobContext(database, generationId)
     if (context?.publishToPlex) {
       readyToPublish.push(generationId)
     }
