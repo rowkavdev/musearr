@@ -1557,7 +1557,15 @@ export async function getDailyBriefDelivery(database: Database, briefId: string)
   return rows[0] ? mapDailyBriefDelivery(rows[0]) : null
 }
 
-export async function beginDiscordDailyBriefDelivery(database: Database, briefId: string): Promise<DailyBriefDelivery> {
+/**
+ * Claims the Discord delivery for a brief. Returns null when another run already delivered it or
+ * has a post in flight (a pending claim younger than two minutes), so overlapping runs cannot
+ * both post. An older pending claim is treated as a crashed run and can be taken over.
+ */
+export async function beginDiscordDailyBriefDelivery(
+  database: Database,
+  briefId: string,
+): Promise<DailyBriefDelivery | null> {
   const rows = await database<DailyBriefDeliveryRow[]>`
     INSERT INTO daily_brief_deliveries (
       daily_brief_id, destination, status, attempt_count, last_attempt_at, error_summary
@@ -1569,13 +1577,15 @@ export async function beginDiscordDailyBriefDelivery(database: Database, briefId
       last_attempt_at = NOW(),
       error_summary = NULL,
       updated_at = NOW()
+    WHERE daily_brief_deliveries.status = 'failed'
+      OR (
+        daily_brief_deliveries.status = 'pending'
+        AND daily_brief_deliveries.last_attempt_at < NOW() - INTERVAL '2 minutes'
+      )
     RETURNING status, attempt_count, last_attempt_at, delivered_at, error_summary
   `
   const delivery = rows[0]
-  if (!delivery) {
-    throw new Error('Daily briefing delivery could not be prepared.')
-  }
-  return mapDailyBriefDelivery(delivery)
+  return delivery ? mapDailyBriefDelivery(delivery) : null
 }
 
 export async function completeDiscordDailyBriefDelivery(database: Database, briefId: string): Promise<void> {
