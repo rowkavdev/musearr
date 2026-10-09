@@ -71,13 +71,16 @@ export function parseSuggestions(raw: string, source: string): ExternalTrackSugg
     const record = entry as Record<string, unknown>
     const artistName = typeof record.artist === 'string' ? record.artist.trim() : ''
     const trackTitle = typeof record.title === 'string' ? record.title.trim() : ''
-    if (!artistName || !trackTitle) {
+    const albumTitle = typeof record.album === 'string' && record.album.trim() ? record.album.trim() : null
+    // Model output is untrusted text. Postgres rejects NUL in text columns;
+    // one bad suggestion must not fail an otherwise usable generation.
+    if (!artistName || !trackTitle || [artistName, trackTitle, albumTitle].some((value) => value?.includes('\u0000'))) {
       continue
     }
     suggestions.push({
       artistName,
       trackTitle,
-      albumTitle: typeof record.album === 'string' && record.album.trim() ? record.album.trim() : null,
+      albumTitle,
       source,
     })
   }
