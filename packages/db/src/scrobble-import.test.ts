@@ -10,6 +10,9 @@ test('#109 candidate query includes only normalized requested artist/title pairs
     if (query.includes('FROM tracks t')) {
       candidates++
       expect(query).toContain('jsonb_to_recordset')
+      // The pairs are already a JSON string. A bare ::jsonb makes the driver serialize it again,
+      // so Postgres sees a JSON string instead of an array.
+      expect(query).toContain('?::text::jsonb) AS wanted')
       expect(query).toContain('wanted.artist = LOWER(artist.name)')
       expect(query).toContain('wanted.title = LOWER(t.title)')
       const pairs = JSON.parse(values.find(value => typeof value === 'string' && value.startsWith('[')) as string)
