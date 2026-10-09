@@ -5,7 +5,12 @@
  *
  * An attempt is counted before the slow password check starts and given back on success, so
  * a burst of parallel guesses cannot all slip past the limit while the first hash is running.
+ *
+ * IPv6 clients are counted per /64, since one subscriber normally controls the whole prefix and
+ * could otherwise rotate addresses for a fresh allowance. IPv4-mapped addresses count as IPv4.
  */
+import { isIPv6 } from 'node:net'
+
 export const LOGIN_MAX_FAILURES = 10
 export const LOGIN_MAX_FAILURES_PER_ADDRESS = 50
 export const LOGIN_WINDOW_MS = 15 * 60 * 1000
@@ -91,12 +96,48 @@ class Counter {
   }
 }
 
+/** The key a client is counted under: its IPv4 address, or its IPv6 /64. Other strings pass through. */
+export function throttleClientKey(address: string): string {
+  const bare = address.split('%', 1)[0] ?? address
+  if (!isIPv6(bare)) return address
+  const groups = expandIpv6(bare)
+  if (!groups) return address
+  if (groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff) {
+    const high = groups[6] ?? 0
+    const low = groups[7] ?? 0
+    return `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`
+  }
+  return `${groups.slice(0, 4).map((group) => group.toString(16)).join(':')}::/64`
+}
+
+function expandIpv6(address: string): number[] | null {
+  let text = address
+  const dotted = /(\d+\.\d+\.\d+\.\d+)$/.exec(text)
+  if (dotted) {
+    const octets = dotted[1]!.split('.').map(Number)
+    if (octets.some((octet) => octet > 255)) return null
+    const hex = (octets[0]! << 8) | octets[1]!
+    const hex2 = (octets[2]! << 8) | octets[3]!
+    text = `${text.slice(0, -dotted[1]!.length)}${hex.toString(16)}:${hex2.toString(16)}`
+  }
+  const [head, tail, extra] = text.split('::')
+  if (extra !== undefined) return null
+  const left = head ? head.split(':') : []
+  const right = tail ? tail.split(':') : []
+  const missing = 8 - left.length - right.length
+  if (tail === undefined ? missing !== 0 : missing < 1) return null
+  const parts = tail === undefined ? left : [...left, ...Array<string>(missing).fill('0'), ...right]
+  const groups = parts.map((part) => Number.parseInt(part, 16))
+  return groups.length === 8 && groups.every((group) => Number.isInteger(group) && group >= 0 && group <= 0xffff) ? groups : null
+}
+
 export function createLoginThrottle(now: () => number = Date.now): LoginThrottle {
   const pairs = new Counter(LOGIN_MAX_FAILURES, now)
   const addresses = new Counter(LOGIN_MAX_FAILURES_PER_ADDRESS, now)
 
   return {
-    reserve(address, username) {
+    reserve(rawAddress, username) {
+      const address = throttleClientKey(rawAddress)
       const pairKey = `${address}|${username}`
       const wait = Math.max(pairs.wait(pairKey), addresses.wait(address))
       if (wait > 0) return wait
@@ -104,7 +145,8 @@ export function createLoginThrottle(now: () => number = Date.now): LoginThrottle
       addresses.add(address)
       return 0
     },
-    recordSuccess(address, username) {
+    recordSuccess(rawAddress, username) {
+      const address = throttleClientKey(rawAddress)
       pairs.remove(`${address}|${username}`)
       // The attempt was counted up front; a correct password should not use up the address allowance.
       addresses.release(address)

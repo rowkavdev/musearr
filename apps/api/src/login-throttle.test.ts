@@ -59,4 +59,41 @@ describe('login throttle', () => {
     expect(throttle.reserve('home', 'next')).toBe(0)
     expect(throttle.reserve('home', 'after')).toBeGreaterThan(0)
   })
+
+  it('shares one allowance across every address in an IPv6 /64', () => {
+    const throttle = createLoginThrottle(() => 0)
+    let allowed = 0
+    for (let i = 0; i < 200; i++) {
+      for (let n = 0; n < LOGIN_MAX_FAILURES; n++) {
+        if (throttle.reserve(`2001:db8:1234:5678::${(i + 1).toString(16)}`, 'owner') === 0) allowed += 1
+      }
+    }
+    expect(allowed).toBe(LOGIN_MAX_FAILURES)
+    // A different /64 and a plain IPv4 address are unaffected.
+    expect(throttle.reserve('2001:db8:1234:5679::1', 'owner')).toBe(0)
+    expect(throttle.reserve('203.0.113.9', 'owner')).toBe(0)
+  })
+
+  it('treats compressed, zoned and uppercase forms of one /64 as the same client', () => {
+    const throttle = createLoginThrottle(() => 0)
+    for (let i = 0; i < LOGIN_MAX_FAILURES; i++) throttle.reserve('2001:db8:0:0:1::1', 'owner')
+    expect(throttle.reserve('2001:DB8::2', 'owner')).toBeGreaterThan(0)
+    expect(throttle.reserve('2001:db8::3%eth0', 'owner')).toBeGreaterThan(0)
+  })
+
+  it('counts IPv4-mapped IPv6 addresses as the IPv4 address', () => {
+    const throttle = createLoginThrottle(() => 0)
+    for (let i = 0; i < LOGIN_MAX_FAILURES; i++) throttle.reserve('203.0.113.9', 'owner')
+    expect(throttle.reserve('::ffff:203.0.113.9', 'owner')).toBeGreaterThan(0)
+    expect(throttle.reserve('::ffff:cb00:7109', 'owner')).toBeGreaterThan(0)
+    expect(throttle.reserve('::ffff:203.0.113.10', 'owner')).toBe(0)
+  })
+
+  it('releases the shared /64 address count on success', () => {
+    const throttle = createLoginThrottle(() => 0)
+    for (let i = 0; i < LOGIN_MAX_FAILURES_PER_ADDRESS * 3; i++) {
+      expect(throttle.reserve(`2001:db8::${(i + 1).toString(16)}`, 'owner')).toBe(0)
+      throttle.recordSuccess(`2001:db8::${(i + 1).toString(16)}`, 'owner')
+    }
+  })
 })
