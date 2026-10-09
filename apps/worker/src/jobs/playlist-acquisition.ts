@@ -80,8 +80,9 @@ export async function requestPlaylistAcquisitions(
       })
       requested += 1
     } catch (error) {
-      // A transport outage is not evidence that the artist is unavailable.
-      if (error instanceof LidarrConnectionError && error.code === 'UNREACHABLE') continue
+      // A transport outage or a rejected API key is not evidence that the artist
+      // is unavailable; the reconciler retries once Lidarr answers or the key is fixed.
+      if (error instanceof LidarrConnectionError && (error.code === 'UNREACHABLE' || error.code === 'UNAUTHENTICATED')) continue
       await updateGenerationItemAcquisition(database, item.id, { state: 'unavailable' })
       unavailable += 1
     }
