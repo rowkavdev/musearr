@@ -402,7 +402,7 @@ export async function importScrobbles(
     JOIN artists artist ON artist.id = album.artist_id
     WHERE artist.plex_server_id = ${plexServerId}::uuid
       AND EXISTS (
-        SELECT 1 FROM jsonb_to_recordset(${requestedPairs}::jsonb) AS wanted(artist text, title text)
+        SELECT 1 FROM jsonb_to_recordset(${requestedPairs}::text::jsonb) AS wanted(artist text, title text)
         WHERE wanted.artist = LOWER(artist.name) AND wanted.title = LOWER(t.title)
       )
   `
