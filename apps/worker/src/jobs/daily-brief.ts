@@ -54,7 +54,12 @@ export async function generateDailyBrief(
     return { brief, created, delivered: true }
   }
 
-  await beginDiscordDailyBriefDelivery(database, brief.id)
+  const claim = await beginDiscordDailyBriefDelivery(database, brief.id)
+  if (claim === null) {
+    // Another run delivered this brief or is posting it right now.
+    const current = await getDailyBriefDelivery(database, brief.id)
+    return { brief, created, delivered: current?.status === 'delivered' }
+  }
   try {
     await deliverDiscordDailyBrief(options.discordWebhookUrl, brief.content)
   } catch (error) {
