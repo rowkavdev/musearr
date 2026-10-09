@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { checkPinStatus, shouldRetryPinPoll } from './pin-poll'
+import { runConnectionTest } from './test-connection'
 import { useRouter } from 'next/navigation'
 
 type MusicLibrary = { id: string; title: string; type: 'artist' }
@@ -50,6 +51,9 @@ export function SetupConnectionForm() {
   const [availableServers, setAvailableServers] = useState<PlexAuthorizedServer[]>([])
   const pollHandle = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pollGeneration = useRef(0)
+  // Synchronous Test connection invalidation: every path that replaces the
+  // address or token bumps this before any pending response can be applied.
+  const testGeneration = useRef(0)
 
   useEffect(() => {
     return () => {
@@ -63,6 +67,7 @@ export function SetupConnectionForm() {
   function updateField(field: keyof typeof initialForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }))
     if (field === 'baseUrl' || field === 'token') {
+      testGeneration.current += 1
       setConnection(null)
       setSelectedLibraryIds([])
     }
@@ -135,6 +140,7 @@ export function SetupConnectionForm() {
 
         popup?.close()
         setPinState('idle')
+        testGeneration.current += 1
         setForm((current) => ({
           ...current,
           token: status.authToken as string,
@@ -176,6 +182,7 @@ export function SetupConnectionForm() {
     if (!server) {
       return
     }
+    testGeneration.current += 1
     setForm((current) => ({ ...current, baseUrl: server.baseUrl }))
     setConnection(null)
     setSelectedLibraryIds([])
@@ -185,22 +192,21 @@ export function SetupConnectionForm() {
     event.preventDefault()
     setState('testing')
     setMessage(null)
+    const generation = testGeneration.current
 
     try {
-      const response = await fetch('/api/v1/setup/test-plex', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ baseUrl: form.baseUrl, token: form.token }),
+      await runConnectionTest({
+        fetchImpl: fetch,
+        details: { baseUrl: form.baseUrl, token: form.token },
+        isCurrent: () => generation === testGeneration.current,
+        readIssue: getIssue,
+        onVerified: (result) => {
+          setConnection(result)
+          setSelectedLibraryIds(result.musicLibraries.map((library) => library.id))
+          setMessage(`Connected to ${result.serverName}. Choose the music libraries Musearr should understand.`)
+        },
+        onFailure: setMessage,
       })
-      if (!response.ok) {
-        throw new Error(await getIssue(response))
-      }
-      const result = (await response.json()) as PlexConnection
-      setConnection(result)
-      setSelectedLibraryIds(result.musicLibraries.map((library) => library.id))
-      setMessage(`Connected to ${result.serverName}. Choose the music libraries Musearr should understand.`)
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Musearr could not reach Plex.')
     } finally {
       setState('idle')
     }
