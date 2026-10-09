@@ -880,6 +880,8 @@ export async function rebuildListeningRollups(database: Database, userId: string
     await transaction`DELETE FROM user_track_rollups WHERE user_id = ${userId}`
     await transaction`DELETE FROM user_artist_rollups WHERE user_id = ${userId}`
 
+    // Both rollups group by selected column position. Repeating the timezone expression in GROUP BY
+    // would bind it as a second parameter, and PostgreSQL rejects the SELECT copy as ungrouped.
     await transaction`
       INSERT INTO user_track_rollups (
         user_id, track_id, period_start, period_kind, reported_plays, exact_plays,
@@ -898,7 +900,7 @@ export async function rebuildListeningRollups(database: Database, userId: string
       FROM listening_events event
       WHERE event.user_id = ${userId}
         AND event.event_type = 'play_count_delta'
-      GROUP BY event.user_id, event.track_id, (event.occurred_at AT TIME ZONE ${timezone})::date
+      GROUP BY 1, 2, 3
     `
 
     await transaction`
@@ -923,7 +925,7 @@ export async function rebuildListeningRollups(database: Database, userId: string
       JOIN artists artist ON artist.id = album.artist_id
       WHERE event.user_id = ${userId}
         AND event.event_type = 'play_count_delta'
-      GROUP BY event.user_id, artist.id, (event.occurred_at AT TIME ZONE ${timezone})::date
+      GROUP BY 1, 2, 3
     `
   })
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { getDashboardOverview, getLatestDailyBrief, getListeningInsightSummary, type Database } from './repository.js'
+import { getDashboardOverview, getLatestDailyBrief, getListeningInsightSummary, rebuildListeningRollups, type Database } from './repository.js'
 
 describe('getDashboardOverview', () => {
   it('returns a stable, locally-derived dashboard summary with persisted Daily Mix reasons', async () => {
@@ -248,6 +248,24 @@ describe('getListeningInsightSummary', () => {
       })
     } finally {
       vi.useRealTimers()
+    }
+  })
+})
+
+describe('rebuildListeningRollups', () => {
+  it('binds the timezone once per rollup insert so GROUP BY matches the selected date', async () => {
+    const statements: Array<{ query: string; values: unknown[] }> = []
+    const transaction = async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      statements.push({ query: strings.join('?'), values })
+      return []
+    }
+    const database = { begin: async (run: (tx: typeof transaction) => Promise<unknown>) => run(transaction) } as unknown as Database
+    await rebuildListeningRollups(database, 'user-1', 'Europe/London')
+    const inserts = statements.filter((statement) => statement.query.includes('INSERT INTO user_'))
+    expect(inserts).toHaveLength(2)
+    for (const insert of inserts) {
+      expect(insert.values.filter((value) => value === 'Europe/London')).toHaveLength(1)
+      expect(insert.query).toContain('GROUP BY 1, 2, 3')
     }
   })
 })
