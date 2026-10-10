@@ -49,6 +49,11 @@ export async function deliverDiscordDailyBrief(
     clearTimeout(timeout)
   }
 
+  // wait=true returns a message body, but delivery only needs the status.
+  // Release it without buffering it or letting cleanup failure cause a retry
+  // of a post that Discord has already accepted.
+  void response.body?.cancel().catch(() => {})
+
   if (!response.ok) {
     throw new DiscordDeliveryError(response.status)
   }
