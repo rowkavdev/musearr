@@ -605,7 +605,8 @@ const MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 async function readBoundedResponse(response: Response): Promise<string> {
   const declared = Number(response.headers.get('content-length'))
   if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {
-    await response.body?.cancel().catch(() => {})
+    // Cleanup is started but not awaited, so the request stops waiting on it.
+    void response.body?.cancel().catch(() => {})
     throw new PlexConnectionError('INVALID_RESPONSE', 'Plex response exceeds the 16 MiB limit.')
   }
   if (!response.body) return ''
@@ -619,7 +620,8 @@ async function readBoundedResponse(response: Response): Promise<string> {
       if (done) break
       bytes += value.byteLength
       if (bytes > MAX_RESPONSE_BYTES) {
-        await reader.cancel().catch(() => {})
+        // Do not wait on cancellation; a peer can leave it pending.
+        void reader.cancel().catch(() => {})
         throw new PlexConnectionError('INVALID_RESPONSE', 'Plex response exceeds the 16 MiB limit.')
       }
       parts.push(decoder.decode(value, { stream: true }))
