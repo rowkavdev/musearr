@@ -269,7 +269,7 @@ const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 async function readBoundedResponse(response: Response): Promise<string> {
   const declared = Number(response.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {
-    await response.body?.cancel().catch(() => {});
+    void response.body?.cancel().catch(() => {});
     throw new MusicBrainzError(
       "INVALID_RESPONSE",
       "MusicBrainz response exceeds the 16 MiB limit.",
@@ -286,7 +286,7 @@ async function readBoundedResponse(response: Response): Promise<string> {
       if (done) break;
       bytes += value.byteLength;
       if (bytes > MAX_RESPONSE_BYTES) {
-        await reader.cancel().catch(() => {});
+        void reader.cancel().catch(() => {});
         throw new MusicBrainzError(
           "INVALID_RESPONSE",
           "MusicBrainz response exceeds the 16 MiB limit.",
