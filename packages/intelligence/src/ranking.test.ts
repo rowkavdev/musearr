@@ -77,6 +77,20 @@ describe('rankRecommendations', () => {
     expect(ranked[0]?.summary).toContain('284 days')
   })
 
+  it('describes an unplayed track without claiming its recently played artist was unplayed', () => {
+    const common = {
+      artistId: 'artist', artistName: 'Artist', albumId: 'album', albumTitle: 'Album',
+      genres: [], addedAt: '2020-01-01T12:00:00Z', rating: 9, playCount: 10,
+    }
+    const results = rankRecommendations([
+      { ...common, trackId: 'old', trackTitle: 'Old Song', lastPlayedAt: '2026-01-01T12:00:00Z' },
+      { ...common, trackId: 'recent', trackTitle: 'Recent Song', lastPlayedAt: '2026-10-14T12:00:00Z' },
+    ], 'forgotten_favourites', { now: new Date('2026-10-14T12:00:00Z') })
+    expect(results).toHaveLength(1)
+    expect(results[0]!.summary).not.toContain('not played Artist')
+    expect(results[0]!.summary).toContain('Old Song')
+  })
+
   it('does not place two tracks from the same album ahead of a similarly qualified alternative', () => {
     const ranked = rankRecommendations(candidates, 'daily_mix', { limit: 3, now })
 

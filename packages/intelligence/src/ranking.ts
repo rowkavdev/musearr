@@ -266,7 +266,7 @@ function buildSummary(
   const favouriteArtist = reasons.find((reason) => reason.code === 'FAVOURITE_ARTIST')
   const favouriteGenre = reasons.find((reason) => reason.code === 'FAVOURITE_GENRE')
   if (kind === 'forgotten_favourites' && daysSincePlayed !== null) {
-    return `You have not played ${candidate.artistName} in ${daysSincePlayed} days, despite ${candidate.playCount} previous plays.`
+    return `You have not played ${candidate.trackTitle} by ${candidate.artistName} in ${daysSincePlayed} days, despite ${candidate.playCount} previous plays.`
   }
   if (kind === 'recently_added' && daysSinceAdded !== null) {
     return `${candidate.albumTitle} joined your library ${daysSinceAdded} days ago and is ready for a proper listen.`

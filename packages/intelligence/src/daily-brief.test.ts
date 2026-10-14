@@ -21,7 +21,7 @@ describe('daily briefing', () => {
         {
           trackTitle: 'Alison',
           artistName: 'Slowdive',
-          summary: 'You have not played Slowdive in 284 days, despite 42 previous plays.',
+          summary: 'You have not played Alison by Slowdive in 284 days, despite 42 previous plays.',
         },
       ],
     })
