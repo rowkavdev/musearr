@@ -28,7 +28,7 @@
     "eslint": "^10.0.0",
     "ghost-deps": "^0.1.6",
     "prettier": "^3.6.2",
-    "tsup": "^8.5.0",
+    "tsup": "^9.0.0",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.66.0",
